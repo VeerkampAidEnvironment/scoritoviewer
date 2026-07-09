@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import concurrent.futures
+import copy
 import hashlib
 import html
 import json
@@ -76,6 +77,8 @@ class ScoritoClient:
         self._access_token_expires_at = 0.0
         self._current_user_id: int | None = None
         self._token_lock = threading.Lock()
+        self._cache_lock = threading.Lock()
+        self._cache: dict[tuple, tuple[float, object]] = {}
 
     @property
     def current_user_id(self) -> int | None:
@@ -83,78 +86,126 @@ class ScoritoClient:
         return self._current_user_id
 
     def get_subleagues(self, market_id: int) -> list[dict]:
-        return self._api_get(
-            f"{self._config['leagueApi']}/subleague/v1.0/data/poollist/{market_id}"
+        return self._cached_value(
+            ("subleagues", market_id),
+            ttl_seconds=300,
+            loader=lambda: self._api_get(
+                f"{self._config['leagueApi']}/subleague/v1.0/data/poollist/{market_id}"
+            ),
         )
 
     def get_market_rounds(self, market_id: int) -> list[dict]:
-        return self._api_get(
-            f"{self._config['cyclingApi']}/cycling/v2.0/marketroundstage/{market_id}"
+        return self._cached_value(
+            ("market_rounds", market_id),
+            ttl_seconds=300,
+            loader=lambda: self._api_get(
+                f"{self._config['cyclingApi']}/cycling/v2.0/marketroundstage/{market_id}"
+            ),
         )
 
     def get_market_enriched(self, market_id: int) -> dict:
-        return self._api_get(
-            f"{self._config['cyclingApi']}/cyclingmanager/v1.0/marketenriched/{market_id}"
+        return self._cached_value(
+            ("market_enriched", market_id),
+            ttl_seconds=900,
+            loader=lambda: self._api_get(
+                f"{self._config['cyclingApi']}/cyclingmanager/v1.0/marketenriched/{market_id}"
+            ),
         )
 
     def get_rider_map(self, market_id: int) -> dict[int, dict]:
-        riders = self._api_get(
-            f"{self._config['cyclingApi']}/cyclingmanager/v1.0/eventriderenriched/{market_id}"
+        return self._cached_value(
+            ("rider_map", market_id),
+            ttl_seconds=900,
+            loader=lambda: {
+                int(rider["RiderId"]): rider
+                for rider in self._api_get(
+                    f"{self._config['cyclingApi']}/cyclingmanager/v1.0/eventriderenriched/{market_id}"
+                )
+            },
         )
-        return {int(rider["RiderId"]): rider for rider in riders}
 
     def get_team_map(self) -> dict[int, dict]:
-        teams = self._api_get(
-            f"{self._config['cyclingApi']}/cycling/v2.0/team"
+        return self._cached_value(
+            ("team_map",),
+            ttl_seconds=3600,
+            loader=lambda: {
+                int(team["Id"]): team
+                for team in self._api_get(
+                    f"{self._config['cyclingApi']}/cycling/v2.0/team"
+                )
+            },
         )
-        return {int(team["Id"]): team for team in teams}
 
     def get_subleague_participants(self, subleague_id: int) -> list[dict]:
-        participants = self._api_get(
-            f"{self._config['leagueApi']}/subleague/v1.0/participant/pool/{subleague_id}"
+        return self._cached_value(
+            ("subleague_participants", subleague_id),
+            ttl_seconds=300,
+            loader=lambda: [
+                item
+                for item in self._api_get(
+                    f"{self._config['leagueApi']}/subleague/v1.0/participant/pool/{subleague_id}"
+                )
+                if int(item.get("ParticipantStatus", 0)) == 1
+            ],
         )
-        return [item for item in participants if int(item.get("ParticipantStatus", 0)) == 1]
 
     def get_stage_selection(self, market_round_id: int, user_id: int) -> dict:
-        return self._api_get(
-            f"{self._config['cyclingApi']}/cyclingmanager/v1.0/stageselection/{market_round_id}/{user_id}"
+        return self._cached_value(
+            ("stage_selection", market_round_id, user_id),
+            ttl_seconds=60,
+            loader=lambda: self._api_get(
+                f"{self._config['cyclingApi']}/cyclingmanager/v1.0/stageselection/{market_round_id}/{user_id}"
+            ),
         )
 
     def get_team_selection(self, market_id: int, user_id: int) -> list[int]:
-        team_selection = self._api_get(
-            f"{self._config['cyclingApi']}/cyclingmanager/v1.0/teamselection/{market_id}/{user_id}"
+        return self._cached_value(
+            ("team_selection", market_id, user_id),
+            ttl_seconds=120,
+            loader=lambda: [
+                int(rider_id)
+                for rider_id in self._api_get(
+                    f"{self._config['cyclingApi']}/cyclingmanager/v1.0/teamselection/{market_id}/{user_id}"
+                )
+            ],
         )
-        return [int(rider_id) for rider_id in team_selection]
 
     def get_market_round_points(self, market_id: int) -> dict[int, dict[int, list[dict]]]:
-        payload = self._api_get(
-            f"{self._config['cyclingApi']}/cyclingmanager/v1.0/points/totalpoints/{market_id}"
+        return self._cached_value(
+            ("market_round_points", market_id),
+            ttl_seconds=180,
+            loader=lambda: self._load_market_round_points(market_id),
         )
-        points_by_round: dict[int, dict[int, list[dict]]] = {}
-        for item in payload:
-            round_id = int(item.get("MarketRoundId") or 0)
-            rider_points: dict[int, list[dict]] = {}
-            collection = (
-                item.get("RiderPointsCollection", {}).get("RiderPointsCollection", [])
-            )
-            for rider_entry in collection:
-                rider_id = int(rider_entry.get("RiderId") or 0)
-                rider_points[rider_id] = rider_entry.get("PointsCollection", [])
-            if round_id > 0:
-                points_by_round[round_id] = rider_points
-        return points_by_round
 
     def get_classifications(self, market_id: int) -> list[dict]:
-        return self._api_get(
-            f"{self._config['cyclingApi']}/cycling/v2.0/classification/{market_id}"
+        return self._cached_value(
+            ("classifications", market_id),
+            ttl_seconds=300,
+            loader=lambda: self._api_get(
+                f"{self._config['cyclingApi']}/cycling/v2.0/classification/{market_id}"
+            ),
         )
 
     def get_classification_results(self, market_id: int) -> list[dict]:
-        return self._api_get(
-            f"{self._config['cyclingApi']}/cycling/v2.0/classificationresult/{market_id}"
+        return self._cached_value(
+            ("classification_results", market_id),
+            ttl_seconds=300,
+            loader=lambda: self._api_get(
+                f"{self._config['cyclingApi']}/cycling/v2.0/classificationresult/{market_id}"
+            ),
         )
 
     def build_classification_panels(self, market_id: int, *, max_rows: int = 5) -> list[dict]:
+        return self._cached_value(
+            ("classification_panels", market_id, max_rows),
+            ttl_seconds=180,
+            loader=lambda: self._build_classification_panels_uncached(
+                market_id=market_id,
+                max_rows=max_rows,
+            ),
+        )
+
+    def _build_classification_panels_uncached(self, market_id: int, *, max_rows: int = 5) -> list[dict]:
         rider_map = self.get_rider_map(market_id)
         team_map = self.get_team_map()
         result_map = {
@@ -222,6 +273,37 @@ class ScoritoClient:
         points_mode: str = "all",
         include_bench: bool = True,
     ) -> list[dict]:
+        return self._cached_value(
+            (
+                "lineups",
+                market_id,
+                subleague_id,
+                market_round_id,
+                points_market_round_id,
+                points_mode,
+                include_bench,
+            ),
+            ttl_seconds=60,
+            loader=lambda: self._build_lineups_uncached(
+                market_id=market_id,
+                subleague_id=subleague_id,
+                market_round_id=market_round_id,
+                points_market_round_id=points_market_round_id,
+                points_mode=points_mode,
+                include_bench=include_bench,
+            ),
+        )
+
+    def _build_lineups_uncached(
+        self,
+        *,
+        market_id: int,
+        subleague_id: int,
+        market_round_id: int,
+        points_market_round_id: int | None = None,
+        points_mode: str = "all",
+        include_bench: bool = True,
+    ) -> list[dict]:
         participants = self.get_subleague_participants(subleague_id)
         rider_map = self.get_rider_map(market_id)
         team_map = self.get_team_map()
@@ -267,6 +349,23 @@ class ScoritoClient:
         return lineups
 
     def build_recommended_riders(
+        self,
+        *,
+        market_id: int,
+        points_market_round_id: int,
+        limit: int | None = None,
+    ) -> list[RiderSummary]:
+        return self._cached_value(
+            ("recommended_riders", market_id, points_market_round_id, limit),
+            ttl_seconds=180,
+            loader=lambda: self._build_recommended_riders_uncached(
+                market_id=market_id,
+                points_market_round_id=points_market_round_id,
+                limit=limit,
+            ),
+        )
+
+    def _build_recommended_riders_uncached(
         self,
         *,
         market_id: int,
@@ -336,14 +435,9 @@ class ScoritoClient:
         access_token: str,
     ) -> dict:
         user_id = int(participant["UserId"])
-        stage_selection = self._authorized_get(
-            f"{self._config['cyclingApi']}/cyclingmanager/v1.0/stageselection/{market_round_id}/{user_id}",
-            access_token,
-        )
-        team_selection = self._authorized_get(
-            f"{self._config['cyclingApi']}/cyclingmanager/v1.0/teamselection/{market_id}/{user_id}",
-            access_token,
-        )
+        self._ensure_access_token_from_cached(access_token)
+        stage_selection = self.get_stage_selection(market_round_id, user_id)
+        team_selection = self.get_team_selection(market_id, user_id)
 
         captain_id = int(stage_selection.get("CaptainId") or 0)
         team_selection_ids = [int(rider_id) for rider_id in team_selection]
@@ -405,6 +499,30 @@ class ScoritoClient:
         subleague_id: int,
         finished_market_round_ids: list[int],
     ) -> list[dict]:
+        cache_key = (
+            "subleague_standings",
+            market_id,
+            subleague_id,
+            tuple(finished_market_round_ids),
+        )
+        cached = self._cached_value(
+            cache_key,
+            ttl_seconds=180,
+            loader=lambda: self._build_subleague_standings_uncached(
+                market_id=market_id,
+                subleague_id=subleague_id,
+                finished_market_round_ids=finished_market_round_ids,
+            ),
+        )
+        return cached
+
+    def _build_subleague_standings_uncached(
+        self,
+        *,
+        market_id: int,
+        subleague_id: int,
+        finished_market_round_ids: list[int],
+    ) -> list[dict]:
         participants = self.get_subleague_participants(subleague_id)
         if not participants or not finished_market_round_ids:
             return []
@@ -444,6 +562,54 @@ class ScoritoClient:
 
         return standings
 
+    def _load_market_round_points(self, market_id: int) -> dict[int, dict[int, list[dict]]]:
+        payload = self._api_get(
+            f"{self._config['cyclingApi']}/cyclingmanager/v1.0/points/totalpoints/{market_id}"
+        )
+        points_by_round: dict[int, dict[int, list[dict]]] = {}
+        for item in payload:
+            round_id = int(item.get("MarketRoundId") or 0)
+            rider_points: dict[int, list[dict]] = {}
+            collection = (
+                item.get("RiderPointsCollection", {}).get("RiderPointsCollection", [])
+            )
+            for rider_entry in collection:
+                rider_id = int(rider_entry.get("RiderId") or 0)
+                rider_points[rider_id] = rider_entry.get("PointsCollection", [])
+            if round_id > 0:
+                points_by_round[round_id] = rider_points
+        return points_by_round
+
+    def _cached_value(
+        self,
+        key: tuple,
+        *,
+        ttl_seconds: int,
+        loader,
+    ):
+        now = time.time()
+        with self._cache_lock:
+            cached_entry = self._cache.get(key)
+            if cached_entry and cached_entry[0] > now:
+                return copy.deepcopy(cached_entry[1])
+
+        value = loader()
+        expires_at = time.time() + ttl_seconds
+        with self._cache_lock:
+            self._cache[key] = (expires_at, copy.deepcopy(value))
+        return value
+
+    def _ensure_access_token_from_cached(self, access_token: str) -> str:
+        now = time.time()
+        with self._token_lock:
+            if (
+                self._access_token == access_token
+                and self._access_token
+                and now < self._access_token_expires_at
+            ):
+                return self._access_token
+        return self._ensure_access_token()
+
     def _fetch_subleague_standing_for_participant(
         self,
         participant: dict,
@@ -454,23 +620,15 @@ class ScoritoClient:
         access_token: str,
     ) -> dict:
         user_id = int(participant["UserId"])
-        team_selection_ids = [
-            int(rider_id)
-            for rider_id in self._authorized_get(
-                f"{self._config['cyclingApi']}/cyclingmanager/v1.0/teamselection/{market_id}/{user_id}",
-                access_token,
-            )
-        ]
+        self._ensure_access_token_from_cached(access_token)
+        team_selection_ids = self.get_team_selection(market_id, user_id)
 
         total_points = 0
         total_bench_points = 0
         total_captain_missed_points = 0
 
         for market_round_id in finished_market_round_ids:
-            stage_selection = self._authorized_get(
-                f"{self._config['cyclingApi']}/cyclingmanager/v1.0/stageselection/{market_round_id}/{user_id}",
-                access_token,
-            )
+            stage_selection = self.get_stage_selection(market_round_id, user_id)
             captain_id = int(stage_selection.get("CaptainId") or 0)
             selected_rider_ids = [int(rider_id) for rider_id in stage_selection.get("RiderIds", [])]
             points_for_round = points_by_round.get(market_round_id, {})

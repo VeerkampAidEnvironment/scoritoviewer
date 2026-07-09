@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import concurrent.futures
 import os
+import threading
 from pathlib import Path
 
 from flask import Flask, render_template, request
@@ -61,6 +63,8 @@ def load_env_files() -> list[Path]:
 LOADED_ENV_PATHS = load_env_files()
 
 app = Flask(__name__)
+CLIENT_CACHE_LOCK = threading.Lock()
+CLIENTS_BY_CREDENTIALS: dict[tuple[str, str], ScoritoClient] = {}
 
 
 def get_market_id() -> int:
@@ -89,7 +93,13 @@ def get_client() -> ScoritoClient:
             f"Searched default locations: {searched_locations}."
             f"{loaded_message}"
         )
-    return ScoritoClient(email=email, password=password)
+    cache_key = (email, password)
+    with CLIENT_CACHE_LOCK:
+        client = CLIENTS_BY_CREDENTIALS.get(cache_key)
+        if client is None:
+            client = ScoritoClient(email=email, password=password)
+            CLIENTS_BY_CREDENTIALS[cache_key] = client
+    return client
 
 
 def choose_subleague(subleagues: list[dict], requested_subleague_id: int | None) -> dict | None:
@@ -311,9 +321,13 @@ def index():
 
     try:
         client = get_client()
-        subleagues = client.get_subleagues(market_id)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            subleagues_future = executor.submit(client.get_subleagues, market_id)
+            rounds_future = executor.submit(client.get_market_rounds, market_id)
+            subleagues = subleagues_future.result()
+            rounds = rounds_future.result()
+
         selected_subleague = choose_subleague(subleagues, requested_subleague_id)
-        rounds = client.get_market_rounds(market_id)
         current_round = choose_current_round(rounds)
         next_round = choose_next_round(rounds, current_round)
         stage_button_rounds = build_stage_button_rounds(rounds)
@@ -341,32 +355,52 @@ def index():
 
         lineups = []
         rider_picker_view = []
-        if show_stage_lineups:
-            lineups = client.build_lineups(
+        recommended_riders: list = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            lineups_future = None
+            recommended_riders_future = None
+            if show_stage_lineups:
+                lineups_future = executor.submit(
+                    client.build_lineups,
+                    market_id=market_id,
+                    subleague_id=int(selected_subleague["Id"]),
+                    market_round_id=int(selected_round["MarketRoundId"]),
+                    points_market_round_id=(
+                        int(display_round["MarketRoundId"]) if display_round else None
+                    ),
+                    points_mode=(
+                        "classification_team"
+                        if int(selected_round.get("StageStatus", -1)) != 2
+                        else "all"
+                    ),
+                    include_bench=int(selected_round.get("StageStatus", -1)) == 2,
+                )
+            elif is_upcoming_stage and display_round:
+                recommended_riders_future = executor.submit(
+                    client.build_recommended_riders,
+                    market_id=market_id,
+                    points_market_round_id=int(display_round["MarketRoundId"]),
+                )
+
+            classification_panels_future = executor.submit(
+                client.build_classification_panels,
+                market_id,
+            )
+            current_standings_future = executor.submit(
+                client.build_subleague_standings,
                 market_id=market_id,
                 subleague_id=int(selected_subleague["Id"]),
-                market_round_id=int(selected_round["MarketRoundId"]),
-                points_market_round_id=(
-                    int(display_round["MarketRoundId"]) if display_round else None
-                ),
-                points_mode="classification_team" if int(selected_round.get("StageStatus", -1)) != 2 else "all",
-                include_bench=int(selected_round.get("StageStatus", -1)) == 2,
+                finished_market_round_ids=finished_round_ids,
             )
-            rider_picker_view = build_rider_picker_view(lineups)
-        recommended_riders = (
-            client.build_recommended_riders(
-                market_id=market_id,
-                points_market_round_id=int(display_round["MarketRoundId"]),
-            )
-            if is_upcoming_stage and display_round
-            else []
-        )
-        classification_panels = client.build_classification_panels(market_id)
-        current_standings = client.build_subleague_standings(
-            market_id=market_id,
-            subleague_id=int(selected_subleague["Id"]),
-            finished_market_round_ids=finished_round_ids,
-        )
+
+            if lineups_future is not None:
+                lineups = lineups_future.result()
+                rider_picker_view = build_rider_picker_view(lineups)
+            if recommended_riders_future is not None:
+                recommended_riders = recommended_riders_future.result()
+
+            classification_panels = classification_panels_future.result()
+            current_standings = current_standings_future.result()
 
         context.update(
             {
