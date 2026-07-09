@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Scorito Subleague Lineups</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <div class="page-shell">
+      <section class="toolbar">
+        <form class="toolbar__form" method="get">
+          {% if selected_round %}
+            <input type="hidden" name="market_round_id" value="{{ selected_round.MarketRoundId }}">
+          {% endif %}
+
+          <div class="field">
+            <label for="subleague_id">Subleague</label>
+            <select id="subleague_id" name="subleague_id">
+              {% for subleague in subleagues %}
+                <option
+                  value="{{ subleague.Id }}"
+                  {% if selected_subleague and subleague.Id == selected_subleague.Id %}selected{% endif %}
+                >
+                  {{ subleague.Name }}{% if subleague.IsMainPool %} (main){% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <button type="submit">Update</button>
+        </form>
+
+        {% if stage_button_rounds %}
+          <div class="stage-strip">
+            {% for stage_button in stage_button_rounds %}
+              {% set market_round = stage_button.round %}
+              <a
+                class="stage-strip__button stage-strip__button--{{ status_label(market_round.StageStatus)|lower }}{% if selected_round and market_round.MarketRoundId == selected_round.MarketRoundId %} stage-strip__button--active{% endif %}"
+                href="{{ url_for('index', subleague_id=(selected_subleague.Id if selected_subleague else None), market_round_id=market_round.MarketRoundId) }}"
+              >
+                <span class="stage-strip__meta">{{ stage_button.nav_label }}</span>
+                <strong>Etappe {{ market_round.StageOrder }}</strong>
+              </a>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </section>
+
+      {% if error %}
+        <section class="message message--error">
+          <h2>Couldn't load the lineups</h2>
+          <p>{{ error }}</p>
+          <p class="message__hint">
+            If this is a new deployment, create a `.env` file from `.env.example`
+            and add your Scorito login details there.
+          </p>
+        </section>
+      {% elif selected_round %}
+        <section class="section-heading section-heading--lineups">
+          <div>
+            <div class="section-heading__eyebrow">Stage Lineups</div>
+            <h2>
+              {% if selected_round %}
+                Etappe {{ selected_round.StageOrder }}
+              {% else %}
+                Stage overview
+              {% endif %}
+            </h2>
+          </div>
+          <p>
+            {% if is_next_stage_preview and display_round %}
+              Next-stage preview uses the latest classification, team and jersey points after stage {{ display_round.StageOrder }}.
+            {% elif is_live_stage and display_round %}
+              Live stage view uses the current classification and team points after stage {{ display_round.StageOrder }}.
+            {% elif selected_round and selected_round.StageStatus == 2 %}
+              Showing stage {{ selected_round.StageOrder }} points and the best-9 bench total for that stage.
+            {% elif display_round %}
+              Pre-stage view uses the latest classification and team points after stage {{ display_round.StageOrder }}.
+            {% else %}
+              No completed stage is available yet for score references.
+            {% endif %}
+          </p>
+        </section>
+
+        {% if is_upcoming_stage and recommended_riders %}
+          <section class="recommendation-section">
+            <div class="section-heading">
+              <div>
+                <div class="section-heading__eyebrow">Next Stage Guide</div>
+                <h2>Everyone scoring points for Etappe {{ selected_round.StageOrder }}</h2>
+              </div>
+              <p>
+                Based on the latest positive classification, team and jersey points after stage {{ display_round.StageOrder }}.
+              </p>
+            </div>
+
+            <div class="recommendation-card">
+              <ol class="recommendation-list">
+                {% for rider in recommended_riders %}
+                  <li class="recommendation-row">
+                    <span class="recommendation-row__rank">{{ loop.index }}</span>
+                    <div class="rider-media">
+                      <span class="rider-media__avatar">{{ rider.initials }}</span>
+                      {% if rider.team_image_url %}
+                        <img class="rider-media__shirt" src="{{ rider.team_image_url }}" alt="">
+                      {% elif rider.jersey_url %}
+                        <img class="rider-media__shirt rider-media__shirt--jersey" src="{{ rider.jersey_url }}" alt="">
+                      {% endif %}
+                    </div>
+                    <div class="recommendation-row__main">
+                      <span class="recommendation-row__name">{{ rider.name_short }}</span>
+                      <span class="recommendation-row__team">{{ rider.team_abbreviation or rider.team_name }}</span>
+                    </div>
+                    <span class="recommendation-row__points">{{ rider.display_base_points }} pts</span>
+                  </li>
+                {% endfor %}
+              </ol>
+            </div>
+          </section>
+        {% endif %}
+
+        {% if show_stage_lineups %}
+          <section class="lineup-grid">
+            {% for lineup in lineups %}
+              <article class="lineup-card{% if lineup.is_current_user %} lineup-card--me{% endif %}">
+                <div class="lineup-card__header">
+                  <div>
+                    <h2>{{ lineup.participant.FullName }}</h2>
+                    <p>{{ lineup.participant.Username }}</p>
+                  </div>
+                  {% if lineup.is_current_user %}
+                    <span class="me-badge">You</span>
+                  {% endif %}
+                </div>
+
+                {% if display_round %}
+                  <div class="lineup-card__stats">
+                    {% if is_live_stage %}
+                      <span class="stat-pill stat-pill--dark">Live total | {{ lineup.display_total_points }} pts</span>
+                    {% else %}
+                      <span class="stat-pill stat-pill--dark">Stage {{ display_round.StageOrder }} | {{ lineup.display_total_points }} pts</span>
+                      <span class="stat-pill">Bench | {{ lineup.bench_points_total }} pts</span>
+                    {% endif %}
+                  </div>
+                {% endif %}
+
+                {% if lineup.has_lineup %}
+                  <ul class="rider-list">
+                    {% for rider in lineup.selected_riders %}
+                      <li class="rider{% if rider.is_captain %} rider--captain{% endif %}">
+                        <div class="rider-media">
+                          <span class="rider-media__avatar">{{ rider.initials }}</span>
+                          {% if rider.team_image_url %}
+                            <img class="rider-media__shirt" src="{{ rider.team_image_url }}" alt="">
+                          {% elif rider.jersey_url %}
+                            <img class="rider-media__shirt rider-media__shirt--jersey" src="{{ rider.jersey_url }}" alt="">
+                          {% endif %}
+                        </div>
+
+                        <div class="rider__main">
+                          <span class="rider__name">{{ rider.name_short }}</span>
+                          <span class="rider__team">{{ rider.team_abbreviation or rider.team_name }}</span>
+                          <span class="rider__meta">
+                            {{ rider.subleague_pick_count }}/{{ lineups|length }} picked | {{ "%.0f"|format(rider.subleague_pick_percentage) }}%
+                          </span>
+                        </div>
+
+                        <div class="rider__stats">
+                          {% if display_round %}
+                            <span class="rider__points">{{ rider.display_points }} pts</span>
+                          {% endif %}
+                          {% if rider.is_captain %}
+                            <span class="rider__captain">C</span>
+                          {% endif %}
+                        </div>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <p class="empty-state">No stage lineup was returned for this member.</p>
+                {% endif %}
+              </article>
+            {% endfor %}
+          </section>
+
+          <section class="reverse-section">
+            <div class="section-heading">
+              <div>
+                <div class="section-heading__eyebrow">Reverse View</div>
+                <h2>Per rider, who picked them</h2>
+              </div>
+              <p>Flip the same stage around and inspect the subleague overlap rider by rider.</p>
+            </div>
+
+            <div class="rider-picker-grid">
+              {% for rider_card in rider_picker_view %}
+                <article class="rider-picker-card">
+                  <div class="rider-picker-card__header">
+                    <div class="rider-picker-card__identity">
+                      <div class="rider-media rider-media--reverse">
+                        <span class="rider-media__avatar">{{ rider_card.initials }}</span>
+                        {% if rider_card.team_image_url %}
+                          <img class="rider-media__shirt" src="{{ rider_card.team_image_url }}" alt="">
+                        {% elif rider_card.jersey_url %}
+                          <img class="rider-media__shirt rider-media__shirt--jersey" src="{{ rider_card.jersey_url }}" alt="">
+                        {% endif %}
+                      </div>
+                      <div>
+                        <h3>{{ rider_card.name_short }}</h3>
+                        <p>{{ rider_card.team_abbreviation or rider_card.team_name }}</p>
+                      </div>
+                    </div>
+
+                    <div class="rider-picker-card__metrics">
+                      <span>{{ rider_card.pick_count }}/{{ lineups|length }}</span>
+                      <span>{{ "%.0f"|format(rider_card.pick_percentage) }}%</span>
+                      {% if display_round %}
+                        <span>{{ rider_card.display_base_points }} pts</span>
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <ul class="picker-name-list">
+                    {% for picker in rider_card.pickers %}
+                      <li class="picker-name">
+                        {{ picker.full_name or picker.username }}
+                      </li>
+                    {% endfor %}
+                  </ul>
+                </article>
+              {% endfor %}
+            </div>
+          </section>
+        {% endif %}
+
+        {% if classification_panels %}
+          <section class="classification-section">
+            <div class="section-heading">
+              <div>
+                <div class="section-heading__eyebrow">Classification Snapshot</div>
+                <h2>Current jersey standings</h2>
+              </div>
+              <p>
+                {% if classification_round %}
+                  Latest completed update after stage {{ classification_round.StageOrder }}.
+                {% else %}
+                  Latest standings available from Scorito.
+                {% endif %}
+              </p>
+            </div>
+
+            <div class="classification-grid">
+              {% for panel in classification_panels %}
+                <article class="classification-card classification-card--{{ panel.theme }}">
+                  <div class="classification-card__head">
+                    <div>
+                      <div class="classification-card__eyebrow">{{ panel.jersey_name }}</div>
+                      <h3>{{ panel.name }}</h3>
+                    </div>
+                    {% if panel.leader %}
+                      <span class="classification-card__metric">{{ panel.leader.metric_value }}</span>
+                    {% endif %}
+                  </div>
+
+                  {% if panel.leader %}
+                    <div class="classification-leader">
+                      <div class="rider-media rider-media--leader">
+                        <span class="rider-media__avatar">{{ panel.leader.initials }}</span>
+                        {% if panel.leader.team_image_url %}
+                          <img class="rider-media__shirt" src="{{ panel.leader.team_image_url }}" alt="">
+                        {% elif panel.leader.jersey_url %}
+                          <img class="rider-media__shirt rider-media__shirt--jersey" src="{{ panel.leader.jersey_url }}" alt="">
+                        {% endif %}
+                      </div>
+                      <div class="classification-leader__copy">
+                        <strong>{{ panel.leader.name_short }}</strong>
+                        <span>{{ panel.leader.team_name }}</span>
+                      </div>
+                    </div>
+                  {% endif %}
+
+                  <ol class="classification-list">
+                    {% for row in panel.rows %}
+                      <li class="classification-row">
+                        <span class="classification-row__rank">{{ row.rank }}</span>
+                        <div class="rider-media">
+                          <span class="rider-media__avatar">{{ row.initials }}</span>
+                          {% if row.team_image_url %}
+                            <img class="rider-media__shirt" src="{{ row.team_image_url }}" alt="">
+                          {% elif row.jersey_url %}
+                            <img class="rider-media__shirt rider-media__shirt--jersey" src="{{ row.jersey_url }}" alt="">
+                          {% endif %}
+                        </div>
+                        <div class="classification-row__main">
+                          <span class="classification-row__name">{{ row.name_short }}</span>
+                          <span class="classification-row__team">{{ row.team_abbreviation or row.team_name }}</span>
+                        </div>
+                        <span class="classification-row__metric">{{ row.metric_value }}</span>
+                      </li>
+                    {% endfor %}
+                  </ol>
+                </article>
+              {% endfor %}
+            </div>
+          </section>
+        {% endif %}
+
+        {% if current_standings %}
+          <section class="standings-section">
+            <div class="section-heading">
+              <div>
+                <div class="section-heading__eyebrow">Current Standing</div>
+                <h2>Subleague ranking</h2>
+              </div>
+              <p>
+                Total points are based on finished stages. Bench totals use the best possible 9 riders per finished stage, and captain miss shows the extra points an ideal captain choice could have added.
+              </p>
+            </div>
+
+            <div class="standings-card">
+              <table class="standings-table">
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Manager</th>
+                    <th>Total points</th>
+                    <th>Total bench points</th>
+                    <th>Ideal captain missed</th>
+                    <th>Total score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for standing in current_standings %}
+                    <tr{% if standing.is_current_user %} class="standings-table__row--you"{% endif %}>
+                      <td>{{ standing.rank }}</td>
+                      <td>
+                        <div class="standings-table__name">
+                          <strong>{{ standing.participant.FullName }}</strong>
+                          <span>{{ standing.participant.Username }}</span>
+                        </div>
+                      </td>
+                      <td>{{ standing.total_points }}</td>
+                      <td>{{ standing.total_bench_points }}</td>
+                      <td>{{ standing.total_captain_missed_points }}</td>
+                      <td class="standings-table__total">{{ standing.total_with_bench_and_captain }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        {% endif %}
+      {% else %}
+        <section class="message">
+          <h2>No lineups yet</h2>
+          <p>Once the subleague and stage load successfully, the rider selections will appear here.</p>
+        </section>
+      {% endif %}
+    </div>
+  </body>
+</html>
