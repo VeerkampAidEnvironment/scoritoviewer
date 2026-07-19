@@ -587,6 +587,80 @@ img {
   font-size: 0.74rem;
 }
 
+.standings-table__hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  border-bottom: 1px dotted rgba(255, 255, 255, 0.42);
+  cursor: help;
+  outline: none;
+}
+
+.hover-card {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+}
+
+.hover-card__panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 25;
+  display: grid;
+  gap: 8px;
+  width: min(460px, 72vw);
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(7, 23, 38, 0.98), rgba(11, 35, 58, 0.98));
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.hover-card__panel::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: 22px;
+  width: 12px;
+  height: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(9, 29, 48, 0.98);
+  transform: rotate(45deg);
+}
+
+.hover-card:hover .hover-card__panel,
+.hover-card:focus-within .hover-card__panel {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.hover-card__title {
+  color: var(--yellow);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hover-card__body {
+  display: grid;
+  gap: 7px;
+}
+
+.hover-card__line {
+  color: rgba(246, 251, 255, 0.9);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: normal;
+  text-align: left;
+}
+
 .standings-table__row--you {
   background: rgba(255, 216, 76, 0.08);
 }
@@ -1141,6 +1215,23 @@ img {
 
   .standings-table {
     min-width: 860px;
+  }
+
+  .hover-card__panel {
+    right: auto;
+    left: 50%;
+    width: min(360px, calc(100vw - 44px));
+    transform: translate(-50%, -4px);
+  }
+
+  .hover-card:hover .hover-card__panel,
+  .hover-card:focus-within .hover-card__panel {
+    transform: translate(-50%, 0);
+  }
+
+  .hover-card__panel::before {
+    right: auto;
+    left: calc(50% - 6px);
   }
 
   .recommendation-list {

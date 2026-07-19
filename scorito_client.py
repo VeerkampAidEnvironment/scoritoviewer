@@ -578,7 +578,11 @@ class ScoritoClient:
             rider_id: int((rider or {}).get("TeamId") or 0)
             for rider_id, rider in rider_map.items()
         }
-        rider_final_points, teammate_bonus_rules = self._build_projected_final_scoring_snapshot(
+        (
+            rider_final_points,
+            rider_final_breakdowns,
+            teammate_bonus_rules,
+        ) = self._build_projected_final_scoring_snapshot(
             market_id=market_id,
             rider_team_ids=rider_team_ids,
         )
@@ -591,8 +595,10 @@ class ScoritoClient:
                     self._fetch_projected_final_classification_for_participant,
                     participant,
                     market_id,
+                    rider_map,
                     rider_team_ids,
                     rider_final_points,
+                    rider_final_breakdowns,
                     teammate_bonus_rules,
                     access_token,
                 ): participant
@@ -621,11 +627,13 @@ class ScoritoClient:
         *,
         market_id: int,
         rider_team_ids: dict[int, int],
-    ) -> tuple[dict[int, int], list[dict]]:
+    ) -> tuple[dict[int, int], dict[int, list[dict]], list[dict]]:
         classifications_by_id = {
             int(item.get("Id") or 0): item for item in self.get_classifications(market_id)
         }
+        rider_map = self.get_rider_map(market_id)
         rider_final_points: dict[int, int] = {}
+        rider_final_breakdowns: dict[int, list[dict]] = {}
         teammate_bonus_rules: list[dict] = []
 
         for classification_result in self.get_classification_results(market_id):
@@ -635,6 +643,10 @@ class ScoritoClient:
             rank_points = self.final_classification_rank_points.get(classification_type)
             if not rank_points:
                 continue
+            classification_name = (
+                classification.get("Name")
+                or self._classification_meta(classification_type)["name"]
+            )
 
             ordered_results = sorted(
                 classification_result.get("Results", []),
@@ -647,6 +659,13 @@ class ScoritoClient:
                 points = rank_points.get(rank, 0)
                 if rider_id > 0 and points > 0:
                     rider_final_points[rider_id] = rider_final_points.get(rider_id, 0) + points
+                    rider_final_breakdowns.setdefault(rider_id, []).append(
+                        {
+                            "classification_name": classification_name,
+                            "rank": rank,
+                            "points": points,
+                        }
+                    )
 
             winner = next(
                 (
@@ -670,18 +689,25 @@ class ScoritoClient:
                     {
                         "winner_rider_id": winner_rider_id,
                         "winner_team_id": winner_team_id,
+                        "winner_name": self._rider_name_short(
+                            rider_map.get(winner_rider_id),
+                            winner_rider_id,
+                        ),
+                        "classification_name": classification_name,
                         "points": winner_team_points,
                     }
                 )
 
-        return rider_final_points, teammate_bonus_rules
+        return rider_final_points, rider_final_breakdowns, teammate_bonus_rules
 
     def _fetch_projected_final_classification_for_participant(
         self,
         participant: dict,
         market_id: int,
+        rider_map: dict[int, dict],
         rider_team_ids: dict[int, int],
         rider_final_points: dict[int, int],
+        rider_final_breakdowns: dict[int, list[dict]],
         teammate_bonus_rules: list[dict],
         access_token: str,
     ) -> dict:
@@ -689,26 +715,65 @@ class ScoritoClient:
         self._ensure_access_token_from_cached(access_token)
         team_selection_ids = list(dict.fromkeys(self.get_team_selection(market_id, user_id)))
 
-        individual_final_points = sum(
-            rider_final_points.get(rider_id, 0) for rider_id in team_selection_ids
-        )
+        individual_breakdown_entries: list[tuple[int, str]] = []
+        individual_final_points = 0
+        for rider_id in team_selection_ids:
+            rider_points = rider_final_points.get(rider_id, 0)
+            if rider_points <= 0:
+                continue
+            rider_name = self._rider_name_short(rider_map.get(rider_id), rider_id)
+            parts = rider_final_breakdowns.get(rider_id, [])
+            details = ", ".join(
+                f"{part['classification_name']} #{part['rank']} ({part['points']})"
+                for part in parts
+            )
+            individual_breakdown_entries.append(
+                (rider_points, f"{rider_name}: {rider_points} pts ({details})")
+            )
+            individual_final_points += rider_points
+
         teammate_winner_points = 0
+        teammate_breakdown_entries: list[tuple[int, str]] = []
         for rider_id in team_selection_ids:
             rider_team_id = rider_team_ids.get(rider_id, 0)
             if rider_team_id <= 0:
                 continue
 
-            teammate_winner_points += sum(
-                rule["points"]
+            matching_rules = [
+                rule
                 for rule in teammate_bonus_rules
                 if rider_team_id == rule["winner_team_id"]
                 and rider_id != rule["winner_rider_id"]
+            ]
+            rider_bonus = sum(rule["points"] for rule in matching_rules)
+            if rider_bonus <= 0:
+                continue
+
+            rider_name = self._rider_name_short(rider_map.get(rider_id), rider_id)
+            details = ", ".join(
+                f"{rule['classification_name']} winner {rule['winner_name']} ({rule['points']})"
+                for rule in matching_rules
             )
+            teammate_breakdown_entries.append(
+                (rider_bonus, f"{rider_name}: {rider_bonus} pts ({details})")
+            )
+            teammate_winner_points += rider_bonus
+
+        individual_breakdown_entries.sort(key=lambda item: (-item[0], item[1].lower()))
+        teammate_breakdown_entries.sort(key=lambda item: (-item[0], item[1].lower()))
 
         return {
             "participant": participant,
             "individual_final_points": individual_final_points,
+            "individual_final_points_tooltip": self._tooltip_lines(
+                [entry[1] for entry in individual_breakdown_entries],
+                empty_message="No riders currently scoring final classification points.",
+            ),
             "teammate_winner_points": teammate_winner_points,
+            "teammate_winner_points_tooltip": self._tooltip_lines(
+                [entry[1] for entry in teammate_breakdown_entries],
+                empty_message="No teammates currently scoring winner bonuses.",
+            ),
             "total_projected_final_points": (
                 individual_final_points + teammate_winner_points
             ),
@@ -721,12 +786,14 @@ class ScoritoClient:
         market_id: int,
         subleague_id: int,
         finished_market_round_ids: list[int],
+        finished_round_stage_orders: dict[int, int],
     ) -> list[dict]:
         cache_key = (
             "subleague_standings",
             market_id,
             subleague_id,
             tuple(finished_market_round_ids),
+            tuple(sorted(finished_round_stage_orders.items())),
         )
         cached = self._cached_value(
             cache_key,
@@ -735,6 +802,7 @@ class ScoritoClient:
                 market_id=market_id,
                 subleague_id=subleague_id,
                 finished_market_round_ids=finished_market_round_ids,
+                finished_round_stage_orders=finished_round_stage_orders,
             ),
         )
         return cached
@@ -745,12 +813,14 @@ class ScoritoClient:
         market_id: int,
         subleague_id: int,
         finished_market_round_ids: list[int],
+        finished_round_stage_orders: dict[int, int],
     ) -> list[dict]:
         participants = self.get_subleague_participants(subleague_id)
         if not participants or not finished_market_round_ids:
             return []
 
         points_by_round = self.get_market_round_points(market_id)
+        rider_map = self.get_rider_map(market_id)
         captain_factor = int(self.get_market_enriched(market_id).get("CaptainFactor") or 2)
         access_token = self._ensure_access_token()
 
@@ -762,6 +832,8 @@ class ScoritoClient:
                     participant,
                     market_id,
                     finished_market_round_ids,
+                    finished_round_stage_orders,
+                    rider_map,
                     points_by_round,
                     captain_factor,
                     access_token,
@@ -838,6 +910,8 @@ class ScoritoClient:
         participant: dict,
         market_id: int,
         finished_market_round_ids: list[int],
+        finished_round_stage_orders: dict[int, int],
+        rider_map: dict[int, dict],
         points_by_round: dict[int, dict[int, list[dict]]],
         captain_factor: int,
         access_token: str,
@@ -849,12 +923,19 @@ class ScoritoClient:
         total_points = 0
         total_bench_points = 0
         total_captain_missed_points = 0
+        bench_breakdown_lines: list[str] = []
+        captain_breakdown_lines: list[str] = []
 
         for market_round_id in finished_market_round_ids:
             stage_selection = self.get_stage_selection(market_round_id, user_id)
             captain_id = int(stage_selection.get("CaptainId") or 0)
             selected_rider_ids = [int(rider_id) for rider_id in stage_selection.get("RiderIds", [])]
             points_for_round = points_by_round.get(market_round_id, {})
+            stage_order = finished_round_stage_orders.get(market_round_id, market_round_id)
+            stage_points_by_rider = {
+                rider_id: self._calculate_points(points_for_round.get(rider_id, []))
+                for rider_id in team_selection_ids
+            }
 
             total_points += sum(
                 self._calculate_points(
@@ -878,31 +959,92 @@ class ScoritoClient:
             )
             ideal_captain_base_points = max(selected_captain_eligible_points, default=0)
             captain_bonus_factor = max(0, captain_factor - 1)
-            total_captain_missed_points += max(
+            captain_missed_points = max(
                 0,
                 (ideal_captain_base_points - chosen_captain_base_points) * captain_bonus_factor,
             )
+            total_captain_missed_points += captain_missed_points
+            if captain_missed_points > 0 and selected_rider_ids:
+                chosen_captain_name = self._rider_name_short(rider_map.get(captain_id), captain_id)
+                ideal_captain_id = max(
+                    selected_rider_ids,
+                    key=lambda rider_id: (
+                        self._calculate_points(
+                            points_for_round.get(rider_id, []),
+                            include_types=self.captain_factor_point_types,
+                        ),
+                        self._rider_name_short(rider_map.get(rider_id), rider_id).lower(),
+                    ),
+                )
+                ideal_captain_name = self._rider_name_short(
+                    rider_map.get(ideal_captain_id),
+                    ideal_captain_id,
+                )
+                captain_breakdown_lines.append(
+                    f"Etappe {stage_order}: {chosen_captain_name} ({chosen_captain_base_points}) -> "
+                    f"{ideal_captain_name} ({ideal_captain_base_points}) [+{captain_missed_points}]"
+                )
 
             selected_base_total = sum(
-                self._calculate_points(points_for_round.get(rider_id, []))
-                for rider_id in selected_rider_ids
+                stage_points_by_rider.get(rider_id, 0) for rider_id in selected_rider_ids
             )
+            best_nine_ids = sorted(
+                team_selection_ids,
+                key=lambda rider_id: (
+                    -stage_points_by_rider.get(rider_id, 0),
+                    self._rider_name_short(rider_map.get(rider_id), rider_id).lower(),
+                ),
+            )[:9]
             best_nine_total = sum(
-                sorted(
-                    (
-                        self._calculate_points(points_for_round.get(rider_id, []))
-                        for rider_id in team_selection_ids
-                    ),
-                    reverse=True,
-                )[:9]
+                stage_points_by_rider.get(rider_id, 0)
+                for rider_id in best_nine_ids
             )
-            total_bench_points += max(0, best_nine_total - selected_base_total)
+            bench_points = max(0, best_nine_total - selected_base_total)
+            total_bench_points += bench_points
+            if bench_points > 0:
+                selected_rider_id_set = set(selected_rider_ids)
+                best_nine_id_set = set(best_nine_ids)
+                incoming_ids = [
+                    rider_id for rider_id in best_nine_ids if rider_id not in selected_rider_id_set
+                ]
+                outgoing_ids = sorted(
+                    [
+                        rider_id
+                        for rider_id in selected_rider_ids
+                        if rider_id not in best_nine_id_set
+                    ],
+                    key=lambda rider_id: (
+                        stage_points_by_rider.get(rider_id, 0),
+                        self._rider_name_short(rider_map.get(rider_id), rider_id).lower(),
+                    ),
+                )
+                swap_parts: list[str] = []
+                for outgoing_id, incoming_id in zip(outgoing_ids, incoming_ids):
+                    outgoing_name = self._rider_name_short(rider_map.get(outgoing_id), outgoing_id)
+                    incoming_name = self._rider_name_short(rider_map.get(incoming_id), incoming_id)
+                    outgoing_points = stage_points_by_rider.get(outgoing_id, 0)
+                    incoming_points = stage_points_by_rider.get(incoming_id, 0)
+                    swap_parts.append(
+                        f"{outgoing_name} ({outgoing_points}) -> {incoming_name} ({incoming_points}) "
+                        f"[+{incoming_points - outgoing_points}]"
+                    )
+                bench_breakdown_lines.append(
+                    f"Etappe {stage_order}: " + "; ".join(swap_parts) + f" [+{bench_points}]"
+                )
 
         return {
             "participant": participant,
             "total_points": total_points,
             "total_bench_points": total_bench_points,
+            "total_bench_points_tooltip": self._tooltip_lines(
+                bench_breakdown_lines,
+                empty_message="No bench points missed.",
+            ),
             "total_captain_missed_points": total_captain_missed_points,
+            "total_captain_missed_points_tooltip": self._tooltip_lines(
+                captain_breakdown_lines,
+                empty_message="No captain points missed.",
+            ),
             "total_with_bench_and_captain": (
                 total_points + total_bench_points + total_captain_missed_points
             ),
@@ -983,6 +1125,15 @@ class ScoritoClient:
         if points_mode == "classification_team":
             return cls.classification_team_point_types
         return None
+
+    @staticmethod
+    def _rider_name_short(rider: dict | None, rider_id: int) -> str:
+        rider = rider or {}
+        return rider.get("NameShort") or f"Rider {rider_id}"
+
+    @staticmethod
+    def _tooltip_lines(lines: list[str], *, empty_message: str) -> list[str]:
+        return lines if lines else [empty_message]
 
     @staticmethod
     def _rider_initials(first_name: str, last_name: str, name_short: str) -> str:

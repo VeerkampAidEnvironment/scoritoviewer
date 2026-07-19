@@ -10,6 +10,19 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body>
+    {% macro hover_breakdown(value, lines, heading) -%}
+      <span class="hover-card">
+        <span class="standings-table__hint" tabindex="0">{{ value }}</span>
+        <span class="hover-card__panel" role="tooltip">
+          <strong class="hover-card__title">{{ heading }}</strong>
+          <span class="hover-card__body">
+            {% for line in lines %}
+              <span class="hover-card__line">{{ line }}</span>
+            {% endfor %}
+          </span>
+        </span>
+      </span>
+    {%- endmacro %}
     <div class="page-shell">
       <section class="toolbar">
         <form class="toolbar__form" method="get">
@@ -376,8 +389,12 @@
                         </div>
                       </td>
                       <td>{{ score.current_points if score.current_points is not none else "-" }}</td>
-                      <td>{{ score.individual_final_points }}</td>
-                      <td>{{ score.teammate_winner_points }}</td>
+                      <td>
+                        {{ hover_breakdown(score.individual_final_points, score.individual_final_points_tooltip, "Rider points breakdown") }}
+                      </td>
+                      <td>
+                        {{ hover_breakdown(score.teammate_winner_points, score.teammate_winner_points_tooltip, "Teammate bonus breakdown") }}
+                      </td>
                       <td class="standings-table__total">{{ score.total_projected_points }}</td>
                     </tr>
                   {% endfor %}
@@ -422,8 +439,12 @@
                         </div>
                       </td>
                       <td>{{ standing.total_points }}</td>
-                      <td>{{ standing.total_bench_points }}</td>
-                      <td>{{ standing.total_captain_missed_points }}</td>
+                      <td>
+                        {{ hover_breakdown(standing.total_bench_points, standing.total_bench_points_tooltip, "Bench swaps by stage") }}
+                      </td>
+                      <td>
+                        {{ hover_breakdown(standing.total_captain_missed_points, standing.total_captain_missed_points_tooltip, "Captain changes by stage") }}
+                      </td>
                       <td class="standings-table__total">{{ standing.total_with_bench_and_captain }}</td>
                     </tr>
                   {% endfor %}

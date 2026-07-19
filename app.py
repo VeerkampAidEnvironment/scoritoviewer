@@ -423,6 +423,11 @@ def index():
             for item in sorted(rounds, key=lambda round_item: round_item["StageOrder"])
             if int(item.get("StageStatus", -1)) == 2
         ]
+        finished_round_stage_orders = {
+            int(item["MarketRoundId"]): int(item["StageOrder"])
+            for item in rounds
+            if int(item.get("StageStatus", -1)) == 2
+        }
 
         if not selected_subleague:
             raise ScoritoError("No subleague was found for this market.")
@@ -472,6 +477,7 @@ def index():
                 market_id=market_id,
                 subleague_id=int(selected_subleague["Id"]),
                 finished_market_round_ids=finished_round_ids,
+                finished_round_stage_orders=finished_round_stage_orders,
             )
 
             if lineups_future is not None:
