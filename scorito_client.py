@@ -68,6 +68,62 @@ class ScoritoClient:
     stage_result_point_types = {1, 2, 3, 4}
     classification_team_point_types = {101, 102, 103, 104, 201, 202, 203, 204}
     captain_factor_point_types = {1, 3}
+    final_classification_rank_points = {
+        1: {
+            1: 100,
+            2: 80,
+            3: 60,
+            4: 50,
+            5: 40,
+            6: 36,
+            7: 32,
+            8: 28,
+            9: 24,
+            10: 22,
+            11: 20,
+            12: 18,
+            13: 16,
+            14: 14,
+            15: 12,
+            16: 10,
+            17: 8,
+            18: 6,
+            19: 4,
+            20: 2,
+        },
+        2: {
+            1: 80,
+            2: 60,
+            3: 40,
+            4: 30,
+            5: 20,
+            6: 10,
+            7: 8,
+            8: 6,
+            9: 4,
+            10: 2,
+        },
+        3: {
+            1: 60,
+            2: 40,
+            3: 30,
+            4: 20,
+            5: 10,
+        },
+        4: {
+            1: 60,
+            2: 40,
+            3: 30,
+            4: 20,
+            5: 10,
+        },
+    }
+    final_classification_winner_team_points = {
+        1: 24,
+        2: 18,
+        3: 9,
+        4: 9,
+    }
 
     def __init__(self, email: str, password: str) -> None:
         self.email = email.strip()
@@ -489,6 +545,173 @@ class ScoritoClient:
             "bench_points_total": bench_points_total,
             "bench_riders": bench_riders,
             "has_lineup": bool(selected_riders),
+            "is_current_user": user_id == self._current_user_id,
+        }
+
+    def build_projected_final_classification_scores(
+        self,
+        *,
+        market_id: int,
+        subleague_id: int,
+    ) -> list[dict]:
+        return self._cached_value(
+            ("projected_final_classification_scores", market_id, subleague_id),
+            ttl_seconds=180,
+            loader=lambda: self._build_projected_final_classification_scores_uncached(
+                market_id=market_id,
+                subleague_id=subleague_id,
+            ),
+        )
+
+    def _build_projected_final_classification_scores_uncached(
+        self,
+        *,
+        market_id: int,
+        subleague_id: int,
+    ) -> list[dict]:
+        participants = self.get_subleague_participants(subleague_id)
+        if not participants:
+            return []
+
+        rider_map = self.get_rider_map(market_id)
+        rider_team_ids = {
+            rider_id: int((rider or {}).get("TeamId") or 0)
+            for rider_id, rider in rider_map.items()
+        }
+        rider_final_points, teammate_bonus_rules = self._build_projected_final_scoring_snapshot(
+            market_id=market_id,
+            rider_team_ids=rider_team_ids,
+        )
+        access_token = self._ensure_access_token()
+
+        worker_count = max(1, min(8, len(participants)))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(
+                    self._fetch_projected_final_classification_for_participant,
+                    participant,
+                    market_id,
+                    rider_team_ids,
+                    rider_final_points,
+                    teammate_bonus_rules,
+                    access_token,
+                ): participant
+                for participant in participants
+            }
+
+            scores: list[dict] = []
+            for future in concurrent.futures.as_completed(futures):
+                scores.append(future.result())
+
+        scores.sort(
+            key=lambda item: (
+                -item["total_projected_final_points"],
+                -item["individual_final_points"],
+                -item["teammate_winner_points"],
+                item["participant"].get("FullName", "").lower(),
+                item["participant"].get("Username", "").lower(),
+            )
+        )
+        for index, item in enumerate(scores, start=1):
+            item["rank"] = index
+        return scores
+
+    def _build_projected_final_scoring_snapshot(
+        self,
+        *,
+        market_id: int,
+        rider_team_ids: dict[int, int],
+    ) -> tuple[dict[int, int], list[dict]]:
+        classifications_by_id = {
+            int(item.get("Id") or 0): item for item in self.get_classifications(market_id)
+        }
+        rider_final_points: dict[int, int] = {}
+        teammate_bonus_rules: list[dict] = []
+
+        for classification_result in self.get_classification_results(market_id):
+            classification_id = int(classification_result.get("Id") or 0)
+            classification = classifications_by_id.get(classification_id, {})
+            classification_type = int(classification.get("Type") or 0)
+            rank_points = self.final_classification_rank_points.get(classification_type)
+            if not rank_points:
+                continue
+
+            ordered_results = sorted(
+                classification_result.get("Results", []),
+                key=lambda item: int(item.get("Rank") or 9999),
+            )
+
+            for result in ordered_results:
+                rider_id = int(result.get("RiderId") or 0)
+                rank = int(result.get("Rank") or 0)
+                points = rank_points.get(rank, 0)
+                if rider_id > 0 and points > 0:
+                    rider_final_points[rider_id] = rider_final_points.get(rider_id, 0) + points
+
+            winner = next(
+                (
+                    result
+                    for result in ordered_results
+                    if int(result.get("Rank") or 0) == 1
+                ),
+                None,
+            )
+            if not winner:
+                continue
+
+            winner_rider_id = int(winner.get("RiderId") or 0)
+            winner_team_id = rider_team_ids.get(winner_rider_id, 0)
+            winner_team_points = self.final_classification_winner_team_points.get(
+                classification_type,
+                0,
+            )
+            if winner_rider_id > 0 and winner_team_id > 0 and winner_team_points > 0:
+                teammate_bonus_rules.append(
+                    {
+                        "winner_rider_id": winner_rider_id,
+                        "winner_team_id": winner_team_id,
+                        "points": winner_team_points,
+                    }
+                )
+
+        return rider_final_points, teammate_bonus_rules
+
+    def _fetch_projected_final_classification_for_participant(
+        self,
+        participant: dict,
+        market_id: int,
+        rider_team_ids: dict[int, int],
+        rider_final_points: dict[int, int],
+        teammate_bonus_rules: list[dict],
+        access_token: str,
+    ) -> dict:
+        user_id = int(participant["UserId"])
+        self._ensure_access_token_from_cached(access_token)
+        team_selection_ids = list(dict.fromkeys(self.get_team_selection(market_id, user_id)))
+
+        individual_final_points = sum(
+            rider_final_points.get(rider_id, 0) for rider_id in team_selection_ids
+        )
+        teammate_winner_points = 0
+        for rider_id in team_selection_ids:
+            rider_team_id = rider_team_ids.get(rider_id, 0)
+            if rider_team_id <= 0:
+                continue
+
+            teammate_winner_points += sum(
+                rule["points"]
+                for rule in teammate_bonus_rules
+                if rider_team_id == rule["winner_team_id"]
+                and rider_id != rule["winner_rider_id"]
+            )
+
+        return {
+            "participant": participant,
+            "individual_final_points": individual_final_points,
+            "teammate_winner_points": teammate_winner_points,
+            "total_projected_final_points": (
+                individual_final_points + teammate_winner_points
+            ),
             "is_current_user": user_id == self._current_user_id,
         }
 

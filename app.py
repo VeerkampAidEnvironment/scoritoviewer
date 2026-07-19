@@ -291,11 +291,84 @@ def build_rider_picker_view(lineups: list[dict]) -> list[dict]:
     return rider_card_list
 
 
+def build_view_tabs(
+    *,
+    show_stage_lineups: bool,
+    is_upcoming_stage: bool,
+    lineups: list[dict],
+    rider_picker_view: list[dict],
+    recommended_riders: list,
+    classification_panels: list[dict],
+    projected_final_scores: list[dict],
+    current_standings: list[dict],
+) -> list[dict]:
+    tabs: list[dict] = []
+
+    if is_upcoming_stage and recommended_riders:
+        tabs.append({"id": "next", "label": "Next stage"})
+    if show_stage_lineups:
+        tabs.append({"id": "lineups", "label": "Lineups"})
+    if show_stage_lineups and lineups and rider_picker_view:
+        tabs.append({"id": "picked", "label": "Who picked"})
+    if classification_panels:
+        tabs.append({"id": "classifications", "label": "Jerseys"})
+    if projected_final_scores:
+        tabs.append({"id": "finals", "label": "Final now"})
+    if current_standings:
+        tabs.append({"id": "standings", "label": "Standing"})
+
+    return tabs
+
+
+def choose_active_view(view_tabs: list[dict], requested_view: str) -> str:
+    available_view_ids = {tab["id"] for tab in view_tabs}
+    if requested_view in available_view_ids:
+        return requested_view
+    return view_tabs[0]["id"] if view_tabs else ""
+
+
+def merge_current_standings_into_projected_final_scores(
+    projected_final_scores: list[dict],
+    current_standings: list[dict],
+) -> None:
+    standings_by_user_id = {
+        int(item["participant"]["UserId"]): item for item in current_standings
+    }
+
+    for score in projected_final_scores:
+        user_id = int(score["participant"]["UserId"])
+        current_standing = standings_by_user_id.get(user_id)
+        score["current_rank"] = current_standing.get("rank") if current_standing else None
+        score["current_points"] = (
+            current_standing.get("total_points")
+            if current_standing
+            else None
+        )
+        score["total_projected_points"] = (
+            (score["current_points"] or 0) + score["total_projected_final_points"]
+        )
+
+    projected_final_scores.sort(
+        key=lambda item: (
+            -item["total_projected_points"],
+            -(item["current_points"] or 0),
+            -item["total_projected_final_points"],
+            -item["individual_final_points"],
+            -item["teammate_winner_points"],
+            item["participant"].get("FullName", "").lower(),
+            item["participant"].get("Username", "").lower(),
+        )
+    )
+    for index, item in enumerate(projected_final_scores, start=1):
+        item["rank"] = index
+
+
 @app.route("/")
 def index():
     market_id = get_market_id()
     requested_subleague_id = request.args.get("subleague_id", type=int) or get_default_subleague_id()
     requested_market_round_id = request.args.get("market_round_id", type=int)
+    requested_view = (request.args.get("view", type=str) or "").strip()
 
     context = {
         "market_id": market_id,
@@ -303,6 +376,8 @@ def index():
         "selected_subleague": None,
         "rounds": [],
         "stage_button_rounds": [],
+        "view_tabs": [],
+        "active_view": "",
         "selected_round": None,
         "lineups": [],
         "rider_picker_view": [],
@@ -310,6 +385,7 @@ def index():
         "classification_panels": [],
         "display_round": None,
         "classification_round": None,
+        "projected_final_scores": [],
         "current_standings": [],
         "is_live_stage": False,
         "is_upcoming_stage": False,
@@ -356,7 +432,7 @@ def index():
         lineups = []
         rider_picker_view = []
         recommended_riders: list = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             lineups_future = None
             recommended_riders_future = None
             if show_stage_lineups:
@@ -386,6 +462,11 @@ def index():
                 client.build_classification_panels,
                 market_id,
             )
+            projected_final_scores_future = executor.submit(
+                client.build_projected_final_classification_scores,
+                market_id=market_id,
+                subleague_id=int(selected_subleague["Id"]),
+            )
             current_standings_future = executor.submit(
                 client.build_subleague_standings,
                 market_id=market_id,
@@ -400,7 +481,23 @@ def index():
                 recommended_riders = recommended_riders_future.result()
 
             classification_panels = classification_panels_future.result()
+            projected_final_scores = projected_final_scores_future.result()
             current_standings = current_standings_future.result()
+            merge_current_standings_into_projected_final_scores(
+                projected_final_scores,
+                current_standings,
+            )
+            view_tabs = build_view_tabs(
+                show_stage_lineups=show_stage_lineups,
+                is_upcoming_stage=is_upcoming_stage,
+                lineups=lineups,
+                rider_picker_view=rider_picker_view,
+                recommended_riders=recommended_riders,
+                classification_panels=classification_panels,
+                projected_final_scores=projected_final_scores,
+                current_standings=current_standings,
+            )
+            active_view = choose_active_view(view_tabs, requested_view)
 
         context.update(
             {
@@ -408,6 +505,8 @@ def index():
                 "selected_subleague": selected_subleague,
                 "rounds": rounds,
                 "stage_button_rounds": stage_button_rounds,
+                "view_tabs": view_tabs,
+                "active_view": active_view,
                 "selected_round": selected_round,
                 "display_round": display_round,
                 "classification_round": classification_round,
@@ -415,6 +514,7 @@ def index():
                 "rider_picker_view": rider_picker_view,
                 "recommended_riders": recommended_riders,
                 "classification_panels": classification_panels,
+                "projected_final_scores": projected_final_scores,
                 "current_standings": current_standings,
                 "is_live_stage": is_live_stage,
                 "is_upcoming_stage": is_upcoming_stage,
