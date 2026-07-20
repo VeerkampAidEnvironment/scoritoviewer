@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import math
 import os
 import threading
 from pathlib import Path
@@ -82,15 +83,15 @@ def get_client() -> ScoritoClient:
     if not email or not password:
         searched_locations = ", ".join(str(path) for path in ENV_CANDIDATE_PATHS)
         loaded_message = (
-            f" Loaded env file(s): {', '.join(str(path) for path in LOADED_ENV_PATHS)}."
+            f" Geladen env-bestand(en): {', '.join(str(path) for path in LOADED_ENV_PATHS)}."
             if LOADED_ENV_PATHS
             else ""
         )
         raise RuntimeError(
-            "Missing Scorito credentials. "
-            "Set SCORITO_EMAIL and SCORITO_PASSWORD in environment variables, "
-            "or create a .env/.env.txt file. "
-            f"Searched default locations: {searched_locations}."
+            "Scorito-inloggegevens ontbreken. "
+            "Zet SCORITO_EMAIL en SCORITO_PASSWORD in de omgevingsvariabelen, "
+            "of maak een .env/.env.txt-bestand aan. "
+            f"Gezochte standaardlocaties: {searched_locations}."
             f"{loaded_message}"
         )
     cache_key = (email, password)
@@ -185,7 +186,7 @@ def build_stage_button_rounds(rounds: list[dict]) -> list[dict]:
     next_round = choose_next_round(rounds, current_round)
 
     button_rounds: list[dict] = [
-        {"round": item, "nav_label": "Played"}
+        {"round": item, "nav_label": "Gespeeld"}
         for item in finished_rounds
     ]
 
@@ -193,11 +194,11 @@ def build_stage_button_rounds(rounds: list[dict]) -> list[dict]:
         button_rounds.append(
             {
                 "round": current_round,
-                "nav_label": "Live" if int(current_round.get("StageStatus", -1)) == 1 else "Current",
+                "nav_label": "Live" if int(current_round.get("StageStatus", -1)) == 1 else "Huidig",
             }
         )
     if next_round:
-        button_rounds.append({"round": next_round, "nav_label": "Next"})
+        button_rounds.append({"round": next_round, "nav_label": "Volgende"})
 
     return button_rounds
 
@@ -301,21 +302,25 @@ def build_view_tabs(
     classification_panels: list[dict],
     projected_final_scores: list[dict],
     current_standings: list[dict],
+    stage_score_matrix: dict,
 ) -> list[dict]:
     tabs: list[dict] = []
 
     if is_upcoming_stage and recommended_riders:
-        tabs.append({"id": "next", "label": "Next stage"})
+        tabs.append({"id": "next", "label": "Volgende etappe"})
     if show_stage_lineups:
-        tabs.append({"id": "lineups", "label": "Lineups"})
+        tabs.append({"id": "lineups", "label": "Opstellingen"})
     if show_stage_lineups and lineups and rider_picker_view:
-        tabs.append({"id": "picked", "label": "Who picked"})
+        tabs.append({"id": "picked", "label": "Wie koos"})
     if classification_panels:
-        tabs.append({"id": "classifications", "label": "Jerseys"})
+        tabs.append({"id": "classifications", "label": "Klassementen"})
     if projected_final_scores:
-        tabs.append({"id": "finals", "label": "Final now"})
+        tabs.append({"id": "finals", "label": "Eindstand nu"})
+    if stage_score_matrix.get("rows") and stage_score_matrix.get("stages"):
+        tabs.append({"id": "graph", "label": "Grafiek"})
+        tabs.append({"id": "stages", "label": "Etappes"})
     if current_standings:
-        tabs.append({"id": "standings", "label": "Standing"})
+        tabs.append({"id": "standings", "label": "Stand"})
 
     return tabs
 
@@ -363,6 +368,173 @@ def merge_current_standings_into_projected_final_scores(
         item["rank"] = index
 
 
+def nice_axis_step(max_value: int, *, target_steps: int = 5) -> int:
+    if max_value <= 0:
+        return 50
+
+    rough_step = max_value / max(1, target_steps)
+    magnitude = 10 ** math.floor(math.log10(rough_step))
+    normalized = rough_step / magnitude
+
+    if normalized <= 1:
+        nice = 1
+    elif normalized <= 2:
+        nice = 2
+    elif normalized <= 2.5:
+        nice = 2.5
+    elif normalized <= 5:
+        nice = 5
+    else:
+        nice = 10
+
+    return max(1, int(nice * magnitude))
+
+
+def build_score_trend_chart(stage_score_matrix: dict) -> dict:
+    stages = stage_score_matrix.get("stages", [])
+    rows = stage_score_matrix.get("rows", [])
+    if not stages or not rows:
+        return {"stages": [], "series": [], "y_ticks": [], "width": 0, "height": 0}
+
+    ordered_stages = sorted(stages, key=lambda item: int(item.get("stage_order") or 0))
+    stage_ids = [int(stage["market_round_id"]) for stage in ordered_stages]
+
+    width = max(900, 110 + (len(stage_ids) * 90))
+    height = 460
+    margin_left = 72
+    margin_right = 36
+    margin_top = 26
+    margin_bottom = 54
+    plot_width = width - margin_left - margin_right
+    plot_height = height - margin_top - margin_bottom
+
+    leader_totals_by_stage = {
+        stage_id: max(
+            (
+                int(row.get("cumulative_points_by_round", {}).get(stage_id, 0))
+                for row in rows
+            ),
+            default=0,
+        )
+        for stage_id in stage_ids
+    }
+    max_gap = max(
+        (
+            max(
+                0,
+                leader_totals_by_stage.get(stage_id, 0)
+                - int(row.get("cumulative_points_by_round", {}).get(stage_id, 0)),
+            )
+            for row in rows
+            for stage_id in stage_ids
+        ),
+        default=0,
+    )
+    y_step = nice_axis_step(max_gap, target_steps=6)
+    y_max = max(y_step * 4, int(math.ceil(max_gap / y_step) * y_step) if max_gap else y_step * 4)
+
+    def x_position(index: int) -> float:
+        if len(stage_ids) == 1:
+            return margin_left + (plot_width / 2)
+        return margin_left + (plot_width * index / (len(stage_ids) - 1))
+
+    def y_position(value: int) -> float:
+        if y_max <= 0:
+            return margin_top + plot_height
+        return margin_top + plot_height - ((value / y_max) * plot_height)
+
+    y_ticks = []
+    tick_value = 0
+    while tick_value <= y_max:
+        y_ticks.append(
+            {
+                "value": tick_value,
+                "label": str(tick_value),
+                "y": round(y_position(tick_value), 2),
+            }
+        )
+        tick_value += y_step
+
+    chart_stages = [
+        {
+            "market_round_id": stage_id,
+            "stage_order": ordered_stages[index]["stage_order"],
+            "x": round(x_position(index), 2),
+        }
+        for index, stage_id in enumerate(stage_ids)
+    ]
+
+    palette = [
+        "#69aef7",
+        "#39d57f",
+        "#ff8b5c",
+        "#ff6f8f",
+        "#9e89ff",
+        "#7ce0d5",
+        "#ffa9d0",
+        "#c4e06b",
+        "#9fd3ff",
+        "#ffb347",
+        "#91f2b2",
+        "#d8b5ff",
+    ]
+
+    series = []
+    palette_index = 0
+    for row in rows:
+        is_current_user = bool(row.get("is_current_user"))
+        color = "#ffd84c" if is_current_user else palette[palette_index % len(palette)]
+        if not is_current_user:
+            palette_index += 1
+
+        cumulative_points = row.get("cumulative_points_by_round", {})
+        point_dicts = []
+        for index, stage_id in enumerate(stage_ids):
+            total_points = int(cumulative_points.get(stage_id, 0))
+            gap_to_leader = max(0, leader_totals_by_stage.get(stage_id, 0) - total_points)
+            point_dicts.append(
+                {
+                    "x": round(x_position(index), 2),
+                    "y": round(y_position(gap_to_leader), 2),
+                    "value": gap_to_leader,
+                    "gap_to_leader": gap_to_leader,
+                    "total_points": total_points,
+                    "stage_order": ordered_stages[index]["stage_order"],
+                }
+            )
+
+        points_attr = " ".join(f"{point['x']},{point['y']}" for point in point_dicts)
+        participant = row["participant"]
+        final_total_points = int(cumulative_points.get(stage_ids[-1], 0))
+        series.append(
+            {
+                "name": participant.get("FullName", ""),
+                "username": participant.get("Username", ""),
+                "is_current_user": is_current_user,
+                "color": color,
+                "stroke_width": 4 if is_current_user else 2.2,
+                "opacity": 1 if is_current_user else 0.65,
+                "marker_radius": 4.2 if is_current_user else 2.8,
+                "points": point_dicts,
+                "points_attr": points_attr,
+                "total_points": row.get("total_points", 0),
+                "gap_to_leader": max(0, leader_totals_by_stage.get(stage_ids[-1], 0) - final_total_points),
+            }
+        )
+
+    return {
+        "width": width,
+        "height": height,
+        "plot_top": margin_top,
+        "plot_right": width - margin_right,
+        "plot_bottom": height - margin_bottom,
+        "plot_left": margin_left,
+        "stages": chart_stages,
+        "y_ticks": y_ticks,
+        "series": series,
+    }
+
+
 @app.route("/")
 def index():
     market_id = get_market_id()
@@ -386,6 +558,8 @@ def index():
         "display_round": None,
         "classification_round": None,
         "projected_final_scores": [],
+        "stage_score_matrix": {"stages": [], "rows": []},
+        "score_trend_chart": {"stages": [], "series": [], "y_ticks": [], "width": 0, "height": 0},
         "current_standings": [],
         "is_live_stage": False,
         "is_upcoming_stage": False,
@@ -430,14 +604,14 @@ def index():
         }
 
         if not selected_subleague:
-            raise ScoritoError("No subleague was found for this market.")
+            raise ScoritoError("Er is geen subleague gevonden voor deze markt.")
         if not selected_round:
-            raise ScoritoError("No stage information was found for this market.")
+            raise ScoritoError("Er is geen etappe-informatie gevonden voor deze markt.")
 
         lineups = []
         rider_picker_view = []
         recommended_riders: list = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
             lineups_future = None
             recommended_riders_future = None
             if show_stage_lineups:
@@ -472,6 +646,13 @@ def index():
                 market_id=market_id,
                 subleague_id=int(selected_subleague["Id"]),
             )
+            stage_score_matrix_future = executor.submit(
+                client.build_stage_score_matrix,
+                market_id=market_id,
+                subleague_id=int(selected_subleague["Id"]),
+                finished_market_round_ids=finished_round_ids,
+                finished_round_stage_orders=finished_round_stage_orders,
+            )
             current_standings_future = executor.submit(
                 client.build_subleague_standings,
                 market_id=market_id,
@@ -488,6 +669,8 @@ def index():
 
             classification_panels = classification_panels_future.result()
             projected_final_scores = projected_final_scores_future.result()
+            stage_score_matrix = stage_score_matrix_future.result()
+            score_trend_chart = build_score_trend_chart(stage_score_matrix)
             current_standings = current_standings_future.result()
             merge_current_standings_into_projected_final_scores(
                 projected_final_scores,
@@ -502,6 +685,7 @@ def index():
                 classification_panels=classification_panels,
                 projected_final_scores=projected_final_scores,
                 current_standings=current_standings,
+                stage_score_matrix=stage_score_matrix,
             )
             active_view = choose_active_view(view_tabs, requested_view)
 
@@ -521,6 +705,8 @@ def index():
                 "recommended_riders": recommended_riders,
                 "classification_panels": classification_panels,
                 "projected_final_scores": projected_final_scores,
+                "stage_score_matrix": stage_score_matrix,
+                "score_trend_chart": score_trend_chart,
                 "current_standings": current_standings,
                 "is_live_stage": is_live_stage,
                 "is_upcoming_stage": is_upcoming_stage,
@@ -531,11 +717,11 @@ def index():
     except RuntimeError as exc:
         context["error"] = str(exc)
     except ScoritoAuthError:
-        context["error"] = "Scorito login failed. Check the configured email and password."
+        context["error"] = "Inloggen bij Scorito is mislukt. Controleer het ingestelde e-mailadres en wachtwoord."
     except ScoritoError as exc:
         context["error"] = str(exc)
     except Exception as exc:  # pragma: no cover - defensive fallback
-        context["error"] = f"Unexpected error: {exc}"
+        context["error"] = f"Onverwachte fout: {exc}"
 
     return render_template("index.html", **context)
 

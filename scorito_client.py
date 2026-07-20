@@ -309,7 +309,7 @@ class ScoritoClient:
             panels.append(
                 {
                     "id": classification_id,
-                    "name": classification.get("Name") or meta["name"],
+                    "name": meta["name"],
                     "theme": meta["theme"],
                     "jersey_name": meta["jersey_name"],
                     "rows": rows,
@@ -643,10 +643,7 @@ class ScoritoClient:
             rank_points = self.final_classification_rank_points.get(classification_type)
             if not rank_points:
                 continue
-            classification_name = (
-                classification.get("Name")
-                or self._classification_meta(classification_type)["name"]
-            )
+            classification_name = self._classification_meta(classification_type)["name"]
 
             ordered_results = sorted(
                 classification_result.get("Results", []),
@@ -751,7 +748,7 @@ class ScoritoClient:
 
             rider_name = self._rider_name_short(rider_map.get(rider_id), rider_id)
             details = ", ".join(
-                f"{rule['classification_name']} winner {rule['winner_name']} ({rule['points']})"
+                f"{rule['classification_name']} winnaar {rule['winner_name']} ({rule['points']})"
                 for rule in matching_rules
             )
             teammate_breakdown_entries.append(
@@ -767,16 +764,189 @@ class ScoritoClient:
             "individual_final_points": individual_final_points,
             "individual_final_points_tooltip": self._tooltip_lines(
                 [entry[1] for entry in individual_breakdown_entries],
-                empty_message="No riders currently scoring final classification points.",
+                empty_message="Er zijn momenteel geen renners die eindklassementpunten scoren.",
             ),
             "teammate_winner_points": teammate_winner_points,
             "teammate_winner_points_tooltip": self._tooltip_lines(
                 [entry[1] for entry in teammate_breakdown_entries],
-                empty_message="No teammates currently scoring winner bonuses.",
+                empty_message="Er zijn momenteel geen ploeggenoten die winnaarbonussen scoren.",
             ),
             "total_projected_final_points": (
                 individual_final_points + teammate_winner_points
             ),
+            "is_current_user": user_id == self._current_user_id,
+        }
+
+    def build_stage_score_matrix(
+        self,
+        *,
+        market_id: int,
+        subleague_id: int,
+        finished_market_round_ids: list[int],
+        finished_round_stage_orders: dict[int, int],
+    ) -> dict:
+        cache_key = (
+            "stage_score_matrix",
+            market_id,
+            subleague_id,
+            tuple(finished_market_round_ids),
+            tuple(sorted(finished_round_stage_orders.items())),
+        )
+        return self._cached_value(
+            cache_key,
+            ttl_seconds=180,
+            loader=lambda: self._build_stage_score_matrix_uncached(
+                market_id=market_id,
+                subleague_id=subleague_id,
+                finished_market_round_ids=finished_market_round_ids,
+                finished_round_stage_orders=finished_round_stage_orders,
+            ),
+        )
+
+    def _build_stage_score_matrix_uncached(
+        self,
+        *,
+        market_id: int,
+        subleague_id: int,
+        finished_market_round_ids: list[int],
+        finished_round_stage_orders: dict[int, int],
+    ) -> dict:
+        participants = self.get_subleague_participants(subleague_id)
+        if not participants or not finished_market_round_ids:
+            return {"stages": [], "rows": []}
+
+        points_by_round = self.get_market_round_points(market_id)
+        captain_factor = int(self.get_market_enriched(market_id).get("CaptainFactor") or 2)
+        access_token = self._ensure_access_token()
+
+        worker_count = max(1, min(8, len(participants)))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(
+                    self._fetch_stage_score_matrix_row,
+                    participant,
+                    finished_market_round_ids,
+                    points_by_round,
+                    captain_factor,
+                    access_token,
+                ): participant
+                for participant in participants
+            }
+
+            rows: list[dict] = []
+            for future in concurrent.futures.as_completed(futures):
+                rows.append(future.result())
+
+        rows.sort(
+            key=lambda item: (
+                -item["total_points"],
+                item["participant"].get("FullName", "").lower(),
+                item["participant"].get("Username", "").lower(),
+            )
+        )
+        for index, item in enumerate(rows, start=1):
+            item["rank"] = index
+
+        winner_scores = {
+            market_round_id: max(
+                (row["stage_points_by_round"].get(market_round_id, 0) for row in rows),
+                default=0,
+            )
+            for market_round_id in finished_market_round_ids
+        }
+        ordered_stage_ids = sorted(
+            finished_market_round_ids,
+            key=lambda market_round_id: finished_round_stage_orders.get(
+                market_round_id,
+                market_round_id,
+            ),
+        )
+
+        stage_columns = [
+            {
+                "market_round_id": market_round_id,
+                "stage_order": finished_round_stage_orders.get(market_round_id, market_round_id),
+                "winner_score": winner_scores.get(market_round_id, 0),
+            }
+            for market_round_id in ordered_stage_ids
+        ]
+
+        leader_scores = {}
+        for row in rows:
+            cumulative_points = 0
+            cumulative_points_by_round: dict[int, int] = {}
+            for market_round_id in ordered_stage_ids:
+                cumulative_points += row["stage_points_by_round"].get(market_round_id, 0)
+                cumulative_points_by_round[market_round_id] = cumulative_points
+            row["cumulative_points_by_round"] = cumulative_points_by_round
+
+        for market_round_id in ordered_stage_ids:
+            leader_scores[market_round_id] = max(
+                (row["cumulative_points_by_round"].get(market_round_id, 0) for row in rows),
+                default=0,
+            )
+
+        for row in rows:
+            row["stage_points"] = [
+                {
+                    "market_round_id": column["market_round_id"],
+                    "stage_order": column["stage_order"],
+                    "points": row["stage_points_by_round"].get(column["market_round_id"], 0),
+                    "is_stage_winner": (
+                        row["stage_points_by_round"].get(column["market_round_id"], 0)
+                        == column["winner_score"]
+                        and column["winner_score"] > 0
+                    ),
+                    "is_subleague_leader": (
+                        row["cumulative_points_by_round"].get(column["market_round_id"], 0)
+                        == leader_scores.get(column["market_round_id"], 0)
+                    ),
+                }
+                for column in stage_columns
+            ]
+            row["stage_win_count"] = sum(
+                1 for stage_point in row["stage_points"] if stage_point["is_stage_winner"]
+            )
+            row["leader_count"] = sum(
+                1 for stage_point in row["stage_points"] if stage_point["is_subleague_leader"]
+            )
+
+        return {"stages": stage_columns, "rows": rows}
+
+    def _fetch_stage_score_matrix_row(
+        self,
+        participant: dict,
+        finished_market_round_ids: list[int],
+        points_by_round: dict[int, dict[int, list[dict]]],
+        captain_factor: int,
+        access_token: str,
+    ) -> dict:
+        user_id = int(participant["UserId"])
+        self._ensure_access_token_from_cached(access_token)
+
+        stage_points_by_round: dict[int, int] = {}
+        total_points = 0
+
+        for market_round_id in finished_market_round_ids:
+            stage_selection = self.get_stage_selection(market_round_id, user_id)
+            captain_id = int(stage_selection.get("CaptainId") or 0)
+            selected_rider_ids = [int(rider_id) for rider_id in stage_selection.get("RiderIds", [])]
+            points_for_round = points_by_round.get(market_round_id, {})
+            stage_points = sum(
+                self._calculate_points(
+                    points_for_round.get(rider_id, []),
+                    factor=captain_factor if rider_id == captain_id else 1,
+                    factor_types=self.captain_factor_point_types,
+                )
+                for rider_id in selected_rider_ids
+            )
+            stage_points_by_round[market_round_id] = stage_points
+            total_points += stage_points
+
+        return {
+            "participant": participant,
+            "stage_points_by_round": stage_points_by_round,
+            "total_points": total_points,
             "is_current_user": user_id == self._current_user_id,
         }
 
@@ -1038,12 +1208,12 @@ class ScoritoClient:
             "total_bench_points": total_bench_points,
             "total_bench_points_tooltip": self._tooltip_lines(
                 bench_breakdown_lines,
-                empty_message="No bench points missed.",
+                empty_message="Er zijn geen bankpunten misgelopen.",
             ),
             "total_captain_missed_points": total_captain_missed_points,
             "total_captain_missed_points_tooltip": self._tooltip_lines(
                 captain_breakdown_lines,
-                empty_message="No captain points missed.",
+                empty_message="Er zijn geen captainpunten misgelopen.",
             ),
             "total_with_bench_and_captain": (
                 total_points + total_bench_points + total_captain_missed_points
@@ -1159,13 +1329,13 @@ class ScoritoClient:
     @staticmethod
     def _classification_meta(classification_type: int) -> dict[str, str]:
         return {
-            1: {"name": "General", "jersey_name": "Yellow Jersey", "theme": "general"},
-            2: {"name": "Points", "jersey_name": "Green Jersey", "theme": "points"},
-            3: {"name": "Mountain", "jersey_name": "Polka Jersey", "theme": "mountain"},
-            4: {"name": "Youth", "jersey_name": "White Jersey", "theme": "youth"},
+            1: {"name": "Algemeen", "jersey_name": "Gele trui", "theme": "general"},
+            2: {"name": "Punten", "jersey_name": "Groene trui", "theme": "points"},
+            3: {"name": "Berg", "jersey_name": "Bolletjestrui", "theme": "mountain"},
+            4: {"name": "Jongeren", "jersey_name": "Witte trui", "theme": "youth"},
         }.get(
             classification_type,
-            {"name": "Classification", "jersey_name": "Standings", "theme": "default"},
+            {"name": "Klassement", "jersey_name": "Stand", "theme": "default"},
         )
 
     @classmethod
@@ -1245,7 +1415,7 @@ class ScoritoClient:
             "__RequestVerificationToken",
         )
         if not return_url or not request_verification_token:
-            raise ScoritoAuthError("Could not parse the Scorito login form.")
+            raise ScoritoAuthError("Het Scorito-inlogformulier kon niet worden verwerkt.")
 
         post_body = urllib.parse.urlencode(
             {
@@ -1276,7 +1446,7 @@ class ScoritoClient:
         returned_state = query_values.get("state", [None])[0]
         if not code or returned_state != state:
             raise ScoritoAuthError(
-                "Scorito login failed. Check the configured email and password."
+                "Inloggen bij Scorito is mislukt. Controleer het ingestelde e-mailadres en wachtwoord."
             )
 
         token_body = urllib.parse.urlencode(
@@ -1301,7 +1471,7 @@ class ScoritoClient:
             opener=opener,
         )
         if "access_token" not in token_response:
-            raise ScoritoAuthError("Scorito did not return an access token.")
+            raise ScoritoAuthError("Scorito gaf geen toegangstoken terug.")
 
         return token_response
 
@@ -1341,7 +1511,7 @@ class ScoritoClient:
         if isinstance(payload, dict) and "ResultCode" in payload:
             if int(payload.get("ResultCode") or 0) != 0:
                 raise ScoritoApiError(
-                    payload.get("ErrorMessage") or "Scorito returned an unknown error."
+                    payload.get("ErrorMessage") or "Scorito gaf een onbekende fout terug."
                 )
             return payload.get("Content", [])
 
@@ -1353,7 +1523,7 @@ class ScoritoClient:
         missing_keys = [key for key in required_keys if key not in config]
         if missing_keys:
             raise ScoritoApiError(
-                f"Scorito config is missing required keys: {', '.join(missing_keys)}"
+                f"In de Scorito-config ontbreken verplichte sleutels: {', '.join(missing_keys)}"
             )
         return config
 
@@ -1380,12 +1550,12 @@ class ScoritoClient:
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise ScoritoApiError(
-                f"HTTP {exc.code} while loading {request.full_url}",
+                f"HTTP {exc.code} tijdens het laden van {request.full_url}",
                 status_code=exc.code,
                 body=body,
             ) from exc
         except urllib.error.URLError as exc:
-            raise ScoritoApiError(f"Network error while loading {request.full_url}: {exc}") from exc
+            raise ScoritoApiError(f"Netwerkfout tijdens het laden van {request.full_url}: {exc}") from exc
 
     def _open_json(
         self,

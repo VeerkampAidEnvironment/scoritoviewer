@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="nl">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Scorito Subleague Lineups</title>
+    <title>Scorito subleague-overzicht</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
@@ -41,20 +41,20 @@
                   value="{{ subleague.Id }}"
                   {% if selected_subleague and subleague.Id == selected_subleague.Id %}selected{% endif %}
                 >
-                  {{ subleague.Name }}{% if subleague.IsMainPool %} (main){% endif %}
+                  {{ subleague.Name }}{% if subleague.IsMainPool %} (hoofd){% endif %}
                 </option>
               {% endfor %}
             </select>
           </div>
 
-          <button type="submit">Update</button>
+          <button type="submit">Bijwerken</button>
         </form>
 
         {% if stage_button_rounds or view_tabs %}
           <div class="toolbar__navs">
             {% if stage_button_rounds %}
               <div class="toolbar__nav-group">
-                <span class="toolbar__nav-label">Stage</span>
+                <span class="toolbar__nav-label">Etappe</span>
                 <div class="stage-strip">
                   {% for stage_button in stage_button_rounds %}
                     {% set market_round = stage_button.round %}
@@ -72,7 +72,7 @@
 
             {% if view_tabs %}
               <div class="toolbar__nav-group">
-                <span class="toolbar__nav-label">View</span>
+                <span class="toolbar__nav-label">Weergave</span>
                 <div class="view-strip">
                   {% for view_tab in view_tabs %}
                     <a
@@ -91,11 +91,11 @@
 
       {% if error %}
         <section class="message message--error">
-          <h2>Couldn't load the lineups</h2>
+          <h2>Kon de gegevens niet laden</h2>
           <p>{{ error }}</p>
           <p class="message__hint">
-            If this is a new deployment, create a `.env` file from `.env.example`
-            and add your Scorito login details there.
+            Als dit een nieuwe uitrol is, maak dan een `.env`-bestand op basis van
+            `.env.example` en zet daar je Scorito-inloggegevens in.
           </p>
         </section>
       {% elif selected_round %}
@@ -103,11 +103,11 @@
           <section class="recommendation-section">
             <div class="section-heading">
               <div>
-                <div class="section-heading__eyebrow">Next Stage Guide</div>
-                <h2>Everyone scoring points for Etappe {{ selected_round.StageOrder }}</h2>
+                <div class="section-heading__eyebrow">Volgende etappe</div>
+                <h2>Alle renners met punten voor etappe {{ selected_round.StageOrder }}</h2>
               </div>
               <p>
-                Based on the latest positive classification, team and jersey points after stage {{ display_round.StageOrder }}.
+                Gebaseerd op de laatste positieve klassements-, team- en truipunten na etappe {{ display_round.StageOrder }}.
               </p>
             </div>
 
@@ -140,26 +140,26 @@
           <section class="lineup-section">
             <div class="section-heading section-heading--lineups">
               <div>
-                <div class="section-heading__eyebrow">Stage Lineups</div>
+                <div class="section-heading__eyebrow">Etappe-opstellingen</div>
                 <h2>
                   {% if selected_round %}
                     Etappe {{ selected_round.StageOrder }}
                   {% else %}
-                    Stage overview
+                    Etappe-overzicht
                   {% endif %}
                 </h2>
               </div>
               <p>
                 {% if is_next_stage_preview and display_round %}
-                  Next-stage preview uses the latest classification, team and jersey points after stage {{ display_round.StageOrder }}.
+                  De voorbeschouwing van de volgende etappe gebruikt de laatste klassements-, team- en truipunten na etappe {{ display_round.StageOrder }}.
                 {% elif is_live_stage and display_round %}
-                  Live stage view uses the current classification and team points after stage {{ display_round.StageOrder }}.
+                  Het live-overzicht gebruikt de actuele klassements- en teampunten na etappe {{ display_round.StageOrder }}.
                 {% elif selected_round and selected_round.StageStatus == 2 %}
-                  Showing stage {{ selected_round.StageOrder }} points and the best-9 bench total for that stage.
+                  Toont de punten van etappe {{ selected_round.StageOrder }} en het beste banktotaal van 9 renners voor die etappe.
                 {% elif display_round %}
-                  Pre-stage view uses the latest classification and team points after stage {{ display_round.StageOrder }}.
+                  Het voor-etappe-overzicht gebruikt de laatste klassements-, team- en truipunten na etappe {{ display_round.StageOrder }}.
                 {% else %}
-                  No completed stage is available yet for score references.
+                  Er is nog geen voltooide etappe beschikbaar als scorebasis.
                 {% endif %}
               </p>
             </div>
@@ -173,17 +173,17 @@
                       <p>{{ lineup.participant.Username }}</p>
                     </div>
                     {% if lineup.is_current_user %}
-                      <span class="me-badge">You</span>
+                      <span class="me-badge">Jij</span>
                     {% endif %}
                   </div>
 
                   {% if display_round %}
                     <div class="lineup-card__stats">
                       {% if is_live_stage %}
-                        <span class="stat-pill stat-pill--dark">Current score | {{ lineup.display_total_points }} pts</span>
+                        <span class="stat-pill stat-pill--dark">Huidige score | {{ lineup.display_total_points }} pts</span>
                       {% else %}
-                        <span class="stat-pill stat-pill--dark">Stage {{ display_round.StageOrder }} | {{ lineup.display_total_points }} pts</span>
-                        <span class="stat-pill">Bench | {{ lineup.bench_points_total }} pts</span>
+                        <span class="stat-pill stat-pill--dark">Etappe {{ display_round.StageOrder }} | {{ lineup.display_total_points }} pts</span>
+                        <span class="stat-pill">Bank | {{ lineup.bench_points_total }} pts</span>
                       {% endif %}
                     </div>
                   {% endif %}
@@ -202,12 +202,12 @@
                           </div>
 
                           <div class="rider__main">
-                            <span class="rider__name">{{ rider.name_short }}</span>
-                            <span class="rider__team">{{ rider.team_abbreviation or rider.team_name }}</span>
-                            <span class="rider__meta">
-                              {{ rider.subleague_pick_count }}/{{ lineups|length }} picked | {{ "%.0f"|format(rider.subleague_pick_percentage) }}%
-                            </span>
-                          </div>
+                          <span class="rider__name">{{ rider.name_short }}</span>
+                          <span class="rider__team">{{ rider.team_abbreviation or rider.team_name }}</span>
+                          <span class="rider__meta">
+                              {{ rider.subleague_pick_count }}/{{ lineups|length }} gekozen | {{ "%.0f"|format(rider.subleague_pick_percentage) }}%
+                          </span>
+                        </div>
 
                           <div class="rider__stats">
                             {% if display_round %}
@@ -221,7 +221,7 @@
                       {% endfor %}
                     </ul>
                   {% else %}
-                    <p class="empty-state">No stage lineup was returned for this member.</p>
+                    <p class="empty-state">Er is geen etappe-opstelling gevonden voor dit lid.</p>
                   {% endif %}
                 </article>
               {% endfor %}
@@ -233,10 +233,10 @@
           <section class="reverse-section">
             <div class="section-heading">
               <div>
-                <div class="section-heading__eyebrow">Reverse View</div>
-                <h2>Per rider, who picked them</h2>
+                <div class="section-heading__eyebrow">Omgekeerd overzicht</div>
+                <h2>Per renner: wie koos hem</h2>
               </div>
-              <p>Flip the same stage around and inspect the subleague overlap rider by rider.</p>
+              <p>Draai hetzelfde etappe-overzicht om en bekijk de overlap binnen de subleague per renner.</p>
             </div>
 
             <div class="rider-picker-grid">
@@ -284,14 +284,14 @@
           <section class="classification-section">
             <div class="section-heading">
               <div>
-                <div class="section-heading__eyebrow">Classification Snapshot</div>
-                <h2>Current jersey standings</h2>
+                <div class="section-heading__eyebrow">Klassementssnapshot</div>
+                <h2>Huidige trui- en klassementstand</h2>
               </div>
               <p>
                 {% if classification_round %}
-                  Latest completed update after stage {{ classification_round.StageOrder }}.
+                  Laatste verwerkte stand na etappe {{ classification_round.StageOrder }}.
                 {% else %}
-                  Latest standings available from Scorito.
+                  Laatste stand beschikbaar vanuit Scorito.
                 {% endif %}
               </p>
             </div>
@@ -356,11 +356,11 @@
           <section class="standings-section">
             <div class="section-heading">
               <div>
-                <div class="section-heading__eyebrow">Projected Finish</div>
-                <h2>Final classification score if the race ended now</h2>
+                <div class="section-heading__eyebrow">Verwachte eindstand</div>
+                <h2>Eindklassementscore als de koers nu zou stoppen</h2>
               </div>
               <p>
-                Uses the current classification standings across each full 20-rider team, including rider final-classification points and teammate bonuses for classification winners, alongside the current subleague ranking.
+                Gebruikt de huidige klassementen over de volledige ploeg van 20 renners, inclusief individuele eindklassementpunten en ploeggenootbonussen voor klassementswinnaars, naast de huidige subleague-stand.
               </p>
             </div>
 
@@ -368,13 +368,13 @@
               <table class="standings-table">
                 <thead>
                   <tr>
-                    <th>Projected rank</th>
-                    <th>Current rank</th>
+                    <th>Verwachte plek</th>
+                    <th>Huidige plek</th>
                     <th>Manager</th>
-                    <th>Current points</th>
-                    <th>Rider points</th>
-                    <th>Teammate winner points</th>
-                    <th>Total projected</th>
+                    <th>Huidige punten</th>
+                    <th>Rennerspunten</th>
+                    <th>Ploeggenootpunten</th>
+                    <th>Verwacht totaal</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -390,12 +390,198 @@
                       </td>
                       <td>{{ score.current_points if score.current_points is not none else "-" }}</td>
                       <td>
-                        {{ hover_breakdown(score.individual_final_points, score.individual_final_points_tooltip, "Rider points breakdown") }}
+                        {{ hover_breakdown(score.individual_final_points, score.individual_final_points_tooltip, "Opbouw rennerspunten") }}
                       </td>
                       <td>
-                        {{ hover_breakdown(score.teammate_winner_points, score.teammate_winner_points_tooltip, "Teammate bonus breakdown") }}
+                        {{ hover_breakdown(score.teammate_winner_points, score.teammate_winner_points_tooltip, "Opbouw ploeggenootpunten") }}
                       </td>
                       <td class="standings-table__total">{{ score.total_projected_points }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        {% endif %}
+
+        {% if active_view == "graph" and score_trend_chart.series %}
+          <section class="standings-section">
+            <div class="section-heading">
+              <div>
+                <div class="section-heading__eyebrow">Scoregrafiek</div>
+                <h2>Achterstand op de leider per etappe</h2>
+              </div>
+              <p>
+                De lijnen tonen hoeveel punten iemand na elke voltooide etappe achter de leider stond. 0 betekent leider. Jouw lijn krijgt extra nadruk.
+              </p>
+            </div>
+
+            <div class="score-chart-card">
+              <div class="score-chart-scroll">
+                <svg
+                  class="score-chart"
+                  viewBox="0 0 {{ score_trend_chart.width }} {{ score_trend_chart.height }}"
+                  style="width: {{ score_trend_chart.width }}px; height: {{ score_trend_chart.height }}px;"
+                  aria-label="Achterstand op de leider per etappe"
+                >
+                  {% for tick in score_trend_chart.y_ticks %}
+                    <line
+                      class="score-chart__grid"
+                      x1="{{ score_trend_chart.plot_left }}"
+                      y1="{{ tick.y }}"
+                      x2="{{ score_trend_chart.plot_right }}"
+                      y2="{{ tick.y }}"
+                    />
+                    <text
+                      class="score-chart__axis-label"
+                      x="{{ score_trend_chart.plot_left - 12 }}"
+                      y="{{ tick.y + 4 }}"
+                      text-anchor="end"
+                    >{{ tick.label }}</text>
+                  {% endfor %}
+
+                  {% for stage in score_trend_chart.stages %}
+                    <line
+                      class="score-chart__guide"
+                      x1="{{ stage.x }}"
+                      y1="{{ score_trend_chart.plot_top }}"
+                      x2="{{ stage.x }}"
+                      y2="{{ score_trend_chart.plot_bottom }}"
+                    />
+                    <text
+                      class="score-chart__stage-label"
+                      x="{{ stage.x }}"
+                      y="{{ score_trend_chart.plot_bottom + 28 }}"
+                      text-anchor="middle"
+                    >Et {{ stage.stage_order }}</text>
+                  {% endfor %}
+
+                  <line
+                    class="score-chart__axis"
+                    x1="{{ score_trend_chart.plot_left }}"
+                    y1="{{ score_trend_chart.plot_bottom }}"
+                    x2="{{ score_trend_chart.plot_right }}"
+                    y2="{{ score_trend_chart.plot_bottom }}"
+                  />
+                  <line
+                    class="score-chart__axis"
+                    x1="{{ score_trend_chart.plot_left }}"
+                    y1="{{ score_trend_chart.plot_top }}"
+                    x2="{{ score_trend_chart.plot_left }}"
+                    y2="{{ score_trend_chart.plot_bottom }}"
+                  />
+
+                  {% for series in score_trend_chart.series %}
+                    <polyline
+                      class="score-chart__line{% if series.is_current_user %} score-chart__line--you{% endif %}"
+                      points="{{ series.points_attr }}"
+                      style="stroke: {{ series.color }}; stroke-width: {{ series.stroke_width }}; opacity: {{ series.opacity }};"
+                    >
+                      <title>{{ series.name }}{% if series.gap_to_leader == 0 %}: leider{% else %}: {{ series.gap_to_leader }} punten achter{% endif %}</title>
+                    </polyline>
+                    {% for point in series.points %}
+                      <circle
+                        class="score-chart__marker{% if series.is_current_user %} score-chart__marker--you{% endif %}"
+                        cx="{{ point.x }}"
+                        cy="{{ point.y }}"
+                        r="{{ series.marker_radius }}"
+                        style="fill: {{ series.color }}; opacity: {{ series.opacity }};"
+                      >
+                        <title>{{ series.name }} | Etappe {{ point.stage_order }} | {{ point.total_points }} totaal | {{ point.gap_to_leader }} achter</title>
+                      </circle>
+                    {% endfor %}
+                  {% endfor %}
+                </svg>
+              </div>
+
+              <div class="score-chart-legend">
+                {% for series in score_trend_chart.series %}
+                  <div class="score-chart-legend__item{% if series.is_current_user %} score-chart-legend__item--you{% endif %}">
+                    <span class="score-chart-legend__swatch" style="--swatch: {{ series.color }};"></span>
+                    <div class="score-chart-legend__copy">
+                      <strong>{{ series.name }}</strong>
+                      <span>{{ series.username }}</span>
+                    </div>
+                    <div class="score-chart-legend__value">
+                      <strong>{{ series.total_points }} pts</strong>
+                      <span>{% if series.gap_to_leader == 0 %}Leider{% else %}{{ series.gap_to_leader }} achter{% endif %}</span>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          </section>
+        {% endif %}
+
+        {% if active_view == "stages" and stage_score_matrix.rows and stage_score_matrix.stages %}
+          <section class="standings-section">
+            <div class="section-heading">
+              <div>
+                <div class="section-heading__eyebrow">Etappematrix</div>
+                <h2>Alle gebruikers en scores per etappe</h2>
+              </div>
+              <p>
+                Alleen voltooide etappes. &#9733; = etappewinst, gele trui = leider na die etappe. Scores vanaf 300 en 400 punten krijgen extra nadruk.
+              </p>
+            </div>
+
+            <div class="matrix-legend">
+              <span class="matrix-legend__item"><span class="stage-score-table__icon stage-score-table__icon--win" aria-hidden="true">&#9733;</span> Etappewinst</span>
+              <span class="matrix-legend__item"><span class="stage-score-table__jersey" aria-hidden="true"></span> Leider na etappe</span>
+              <span class="matrix-legend__item"><span class="stage-score-table__score stage-score-table__score--300">300+</span> Sterke score</span>
+              <span class="matrix-legend__item"><span class="stage-score-table__score stage-score-table__score--400">400+</span> Topscore</span>
+            </div>
+
+            <div class="standings-card stage-score-card">
+              <table class="standings-table stage-score-table">
+                <thead>
+                  <tr>
+                    <th>Plek</th>
+                    <th>Manager</th>
+                    {% for stage in stage_score_matrix.stages %}
+                      <th>Et {{ stage.stage_order }}</th>
+                    {% endfor %}
+                    <th>Totaal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in stage_score_matrix.rows %}
+                    <tr{% if row.is_current_user %} class="standings-table__row--you"{% endif %}>
+                      <td>{{ row.rank }}</td>
+                      <td>
+                        <div class="standings-table__name standings-table__name--achievements">
+                          <div class="standings-table__headline">
+                            <strong>{{ row.participant.FullName }}</strong>
+                            <span class="manager-achievements" aria-label="{{ row.stage_win_count }} etappezeges en {{ row.leader_count }} keer leider">
+                              <span class="manager-achievement" title="{{ row.stage_win_count }} etappezeges">
+                                <span class="stage-score-table__icon stage-score-table__icon--win" aria-hidden="true">&#9733;</span>
+                                <span>{{ row.stage_win_count }}</span>
+                              </span>
+                              <span class="manager-achievement" title="{{ row.leader_count }} keer leider na een etappe">
+                                <span class="stage-score-table__jersey" aria-hidden="true"></span>
+                                <span>{{ row.leader_count }}</span>
+                              </span>
+                            </span>
+                          </div>
+                          <span>{{ row.participant.Username }}</span>
+                        </div>
+                      </td>
+                      {% for stage_point in row.stage_points %}
+                        <td class="stage-score-table__cell{% if stage_point.is_stage_winner %} stage-score-table__cell--winner{% endif %}">
+                          <span class="stage-score-table__score-wrap">
+                            <span class="stage-score-table__score{% if stage_point.points >= 400 %} stage-score-table__score--400{% elif stage_point.points >= 300 %} stage-score-table__score--300{% endif %}">{{ stage_point.points }}</span>
+                            <span class="stage-score-table__icons">
+                              {% if stage_point.is_stage_winner %}
+                                <span class="stage-score-table__icon stage-score-table__icon--win" title="Etappewinnaar" aria-label="Etappewinnaar">&#9733;</span>
+                              {% endif %}
+                              {% if stage_point.is_subleague_leader %}
+                                <span class="stage-score-table__jersey" title="Leider na deze etappe" aria-label="Leider na deze etappe"></span>
+                              {% endif %}
+                            </span>
+                          </span>
+                        </td>
+                      {% endfor %}
+                      <td class="standings-table__total">{{ row.total_points }}</td>
                     </tr>
                   {% endfor %}
                 </tbody>
@@ -408,11 +594,11 @@
           <section class="standings-section">
             <div class="section-heading">
               <div>
-                <div class="section-heading__eyebrow">Current Standing</div>
-                <h2>Subleague ranking</h2>
+                <div class="section-heading__eyebrow">Huidige stand</div>
+                <h2>Subleague-klassement</h2>
               </div>
               <p>
-                Total points are based on finished stages. Bench totals use the best possible 9 riders per finished stage, and captain miss shows the extra points an ideal captain choice could have added.
+                Totaalpunten zijn gebaseerd op voltooide etappes. Banktotalen gebruiken de best mogelijke 9 renners per voltooide etappe, en gemiste captainpunten tonen hoeveel extra punten een ideale captainkeuze had opgeleverd.
               </p>
             </div>
 
@@ -420,12 +606,12 @@
               <table class="standings-table">
                 <thead>
                   <tr>
-                    <th>Rank</th>
+                    <th>Plek</th>
                     <th>Manager</th>
-                    <th>Total points</th>
-                    <th>Total bench points</th>
-                    <th>Ideal captain missed</th>
-                    <th>Total score</th>
+                    <th>Totaal punten</th>
+                    <th>Totaal bankpunten</th>
+                    <th>Gemiste captainpunten</th>
+                    <th>Totaalscore</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -440,10 +626,10 @@
                       </td>
                       <td>{{ standing.total_points }}</td>
                       <td>
-                        {{ hover_breakdown(standing.total_bench_points, standing.total_bench_points_tooltip, "Bench swaps by stage") }}
+                        {{ hover_breakdown(standing.total_bench_points, standing.total_bench_points_tooltip, "Bankwissels per etappe") }}
                       </td>
                       <td>
-                        {{ hover_breakdown(standing.total_captain_missed_points, standing.total_captain_missed_points_tooltip, "Captain changes by stage") }}
+                        {{ hover_breakdown(standing.total_captain_missed_points, standing.total_captain_missed_points_tooltip, "Captainwissels per etappe") }}
                       </td>
                       <td class="standings-table__total">{{ standing.total_with_bench_and_captain }}</td>
                     </tr>
@@ -455,8 +641,8 @@
         {% endif %}
       {% else %}
         <section class="message">
-          <h2>No lineups yet</h2>
-          <p>Once the subleague and stage load successfully, the rider selections will appear here.</p>
+          <h2>Nog geen gegevens</h2>
+          <p>Zodra de subleague en etappe goed geladen zijn, verschijnen hier de rennerselecties.</p>
         </section>
       {% endif %}
     </div>
