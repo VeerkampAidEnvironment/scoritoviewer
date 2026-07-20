@@ -528,11 +528,18 @@ img {
 }
 
 .standings-card {
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
   border-radius: 20px;
   border: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(15, 42, 70, 0.95), rgba(8, 28, 48, 0.94));
   box-shadow: var(--shadow-dark);
+}
+
+.standings-card--cards {
+  overflow: hidden;
 }
 
 .standings-table {
@@ -582,6 +589,10 @@ img {
   min-width: 180px;
 }
 
+.standings-table__cell--manager {
+  text-align: left !important;
+}
+
 .standings-table__headline {
   display: flex;
   flex-wrap: wrap;
@@ -624,7 +635,13 @@ img {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
   border-bottom: 1px dotted rgba(255, 255, 255, 0.42);
+  background: transparent;
+  color: inherit;
+  font: inherit;
   cursor: help;
   outline: none;
 }
@@ -633,6 +650,7 @@ img {
   position: relative;
   display: inline-flex;
   justify-content: flex-end;
+  min-width: 0;
 }
 
 .hover-card__panel {
@@ -714,6 +732,8 @@ img {
 .score-chart-scroll {
   overflow-x: auto;
   padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 
 .score-chart {
@@ -926,6 +946,10 @@ img {
 
 .stage-score-card {
   overflow: auto;
+}
+
+.stage-score-mobile {
+  display: none;
 }
 
 .stage-score-table {
@@ -1543,6 +1567,20 @@ img {
   .hero__leaders {
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
+
+  .stage-strip,
+  .view-strip {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .stage-strip__button,
+  .view-strip__button {
+    flex: 0 0 auto;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1572,16 +1610,29 @@ img {
     padding: 14px;
   }
 
+  .toolbar__form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .field {
+    min-width: 0;
+    flex-basis: auto;
+  }
+
   .toolbar button {
+    width: 100%;
     max-width: none;
   }
 
   .stage-strip__button {
-    flex: 1 1 calc(50% - 4px);
+    min-width: 104px;
+    padding: 10px 12px;
   }
 
   .view-strip__button {
-    flex: 1 1 calc(50% - 4px);
+    min-width: 116px;
+    padding-inline: 12px;
   }
 
   .section-heading,
@@ -1595,9 +1646,36 @@ img {
     max-width: none;
   }
 
+  .section-heading h2 {
+    font-size: clamp(1.35rem, 6vw, 1.9rem);
+  }
+
+  .section-heading__eyebrow,
+  .classification-card__eyebrow {
+    font-size: 0.68rem;
+  }
+
+  .classification-grid,
+  .lineup-grid,
+  .rider-picker-grid {
+    grid-template-columns: 1fr;
+  }
+
   .matrix-toolbar,
   .stage-share-controls {
     align-items: stretch;
+  }
+
+  .matrix-legend {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .matrix-legend__item {
+    flex: 0 0 auto;
   }
 
   .stage-share-controls {
@@ -1612,28 +1690,123 @@ img {
   }
 
   .standings-card {
-    overflow-x: auto;
+    margin-inline: -2px;
   }
 
-  .standings-table {
-    min-width: 860px;
+  .standings-card--cards {
+    overflow: hidden;
+    margin-inline: 0;
+  }
+
+  .standings-table--cards {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .standings-table--cards thead {
+    display: none;
+  }
+
+  .standings-table--cards tbody {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .standings-table--cards tbody tr {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .standings-table--cards tbody tr + tr td {
+    border-top: 0;
+  }
+
+  .standings-table--cards td,
+  .standings-table--cards td:nth-child(2),
+  .standings-table--cards td:nth-child(n + 3) {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0;
+    border: 0;
+    white-space: normal;
+    text-align: left;
+  }
+
+  .standings-table--cards td::before {
+    content: attr(data-label);
+    flex: 0 0 42%;
+    color: rgba(246, 251, 255, 0.64);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .standings-table--cards td > * {
+    margin-left: auto;
+  }
+
+  .standings-table--cards .standings-table__cell--manager {
+    display: block;
+  }
+
+  .standings-table--cards .standings-table__cell--manager::before {
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .standings-table--cards .standings-table__cell--manager > * {
+    margin-left: 0;
+  }
+
+  .standings-table--cards .standings-table__name {
+    min-width: 0;
+  }
+
+  .standings-table--cards .standings-table__name strong {
+    font-size: 0.94rem;
+  }
+
+  .standings-table--cards .hover-card {
+    margin-left: auto;
+  }
+
+  .standings-table th,
+  .standings-table td {
+    padding: 10px 12px;
+  }
+
+  .standings-table__name {
+    min-width: 148px;
   }
 
   .hover-card__panel {
-    right: auto;
-    left: 50%;
-    width: min(360px, calc(100vw - 44px));
-    transform: translate(-50%, -4px);
+    position: fixed;
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: auto;
+    max-width: none;
+    max-height: min(58vh, 420px);
+    overflow: auto;
+    transform: translateY(8px);
   }
 
   .hover-card:hover .hover-card__panel,
   .hover-card:focus-within .hover-card__panel {
-    transform: translate(-50%, 0);
+    transform: translateY(0);
   }
 
   .hover-card__panel::before {
-    right: auto;
-    left: calc(50% - 6px);
+    display: none;
   }
 
   .recommendation-list {
@@ -1642,6 +1815,22 @@ img {
 
   .score-chart-legend {
     grid-template-columns: 1fr;
+  }
+
+  .score-chart-legend__item {
+    grid-template-columns: auto minmax(0, 1fr);
+    min-height: 0;
+    padding: 10px 12px;
+  }
+
+  .score-chart-legend__value {
+    grid-column: 2;
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .score-chart {
+    min-width: 760px;
   }
 
   .classification-row,
@@ -1653,7 +1842,247 @@ img {
   .classification-row__metric,
   .recommendation-row__points,
   .rider__stats {
-    grid-column: 2;
+    grid-column: 1 / -1;
     justify-self: start;
+    margin-top: 2px;
+    padding-left: 50px;
+  }
+
+  .rider-picker-card__metrics {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .manager-achievements {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .manager-achievement {
+    min-height: 20px;
+    padding: 0 6px;
+    font-size: 0.68rem;
+  }
+
+  .stage-score-card {
+    overflow: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .stage-score-table {
+    display: none;
+  }
+
+  .stage-score-mobile {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .stage-score-mobile-card {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .stage-score-mobile-card__header {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .stage-score-mobile-card__rank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 38px;
+    min-height: 38px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--white);
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+
+  .stage-score-mobile-card__main {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .stage-score-mobile-card__name-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .stage-score-mobile-card__name-row strong {
+    font-size: 0.94rem;
+  }
+
+  .stage-score-mobile-card__leaders {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: rgba(246, 251, 255, 0.82);
+    font-size: 0.74rem;
+    font-weight: 600;
+  }
+
+  .stage-score-mobile-card__total {
+    color: var(--yellow);
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+
+  .stage-score-mobile-card__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .stage-score-mobile-stage {
+    display: grid;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .stage-score-mobile-stage--winner {
+    box-shadow: inset 0 0 0 1px rgba(255, 216, 76, 0.2);
+    background-image: linear-gradient(180deg, rgba(255, 216, 76, 0.08), transparent 65%);
+  }
+
+  .stage-score-mobile-stage__label {
+    color: rgba(246, 251, 255, 0.64);
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .stage-score-mobile-stage__top,
+  .stage-score-mobile-stage__bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .stage-score-mobile-stage__name {
+    min-width: 0;
+    flex: 1 1 auto;
+    color: var(--white);
+    font-size: 0.84rem;
+    font-weight: 700;
+    text-align: right;
+  }
+
+  .stage-score-mobile-stage__subline {
+    color: rgba(246, 251, 255, 0.62);
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  .stage-score-mobile-stage__icons {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    min-height: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .page-shell {
+    width: calc(100% - 12px);
+    padding-top: 10px;
+    padding-bottom: 18px;
+  }
+
+  .toolbar,
+  .message,
+  .lineup-card,
+  .classification-card,
+  .rider-picker-card,
+  .recommendation-card,
+  .score-chart-card,
+  .standings-card {
+    border-radius: 16px;
+  }
+
+  .hero,
+  .classification-card,
+  .rider-picker-card,
+  .lineup-card,
+  .recommendation-card,
+  .score-chart-card {
+    padding: 12px;
+  }
+
+  .toolbar {
+    padding: 12px;
+  }
+
+  .stage-strip__button,
+  .view-strip__button {
+    min-width: 96px;
+  }
+
+  .stage-share-controls__button {
+    padding-inline: 12px;
+    font-size: 0.8rem;
+  }
+
+  .standings-table--cards tbody {
+    padding: 10px;
+  }
+
+  .standings-table--cards tbody tr {
+    padding: 12px;
+  }
+
+  .standings-table--cards td::before {
+    flex-basis: 46%;
+    font-size: 0.66rem;
+  }
+
+  .classification-row__metric,
+  .recommendation-row__points,
+  .rider__stats {
+    padding-left: 46px;
+  }
+
+  .stage-score-mobile {
+    padding: 10px;
+  }
+
+  .stage-score-mobile-card {
+    padding: 12px;
+  }
+
+  .stage-score-mobile-card__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stage-score-mobile-card__rank {
+    min-width: 0;
+    width: fit-content;
+  }
+
+  .stage-score-mobile-card__grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -12,7 +12,11 @@
   <body>
     {% macro hover_breakdown(value, lines, heading) -%}
       <span class="hover-card">
-        <span class="standings-table__hint" tabindex="0">{{ value }}</span>
+        <button
+          type="button"
+          class="standings-table__hint"
+          aria-label="{{ heading }}: {{ value }}. Tik voor uitsplitsing."
+        >{{ value }}</button>
         <span class="hover-card__panel" role="tooltip">
           <strong class="hover-card__title">{{ heading }}</strong>
           <span class="hover-card__body">
@@ -360,8 +364,8 @@
               </p>
             </div>
 
-            <div class="standings-card">
-              <table class="standings-table">
+            <div class="standings-card standings-card--cards">
+              <table class="standings-table standings-table--cards">
                 <thead>
                   <tr>
                     <th>Verwachte plek</th>
@@ -376,21 +380,21 @@
                 <tbody>
                   {% for score in projected_final_scores %}
                     <tr>
-                      <td>{{ score.rank }}</td>
-                      <td>{{ score.current_rank if score.current_rank is not none else "-" }}</td>
-                      <td>
+                      <td data-label="Verwachte plek">{{ score.rank }}</td>
+                      <td data-label="Huidige plek">{{ score.current_rank if score.current_rank is not none else "-" }}</td>
+                      <td data-label="Manager" class="standings-table__cell--manager">
                         <div class="standings-table__name">
                           <strong>{{ score.participant.Username }}</strong>
                         </div>
                       </td>
-                      <td>{{ score.current_points if score.current_points is not none else "-" }}</td>
-                      <td>
+                      <td data-label="Huidige punten">{{ score.current_points if score.current_points is not none else "-" }}</td>
+                      <td data-label="Rennerspunten">
                         {{ hover_breakdown(score.individual_final_points, score.individual_final_points_tooltip, "Opbouw rennerspunten") }}
                       </td>
-                      <td>
+                      <td data-label="Ploeggenootpunten">
                         {{ hover_breakdown(score.teammate_winner_points, score.teammate_winner_points_tooltip, "Opbouw ploeggenootpunten") }}
                       </td>
-                      <td class="standings-table__total">{{ score.total_projected_points }}</td>
+                      <td data-label="Verwacht totaal" class="standings-table__total">{{ score.total_projected_points }}</td>
                     </tr>
                   {% endfor %}
                 </tbody>
@@ -617,6 +621,51 @@
                   {% endfor %}
                 </tbody>
               </table>
+
+              <div class="stage-score-mobile" aria-label="Mobiel etappeoverzicht">
+                {% for snapshot in stage_result_snapshots %}
+                  <article class="stage-score-mobile-card">
+                    <div class="stage-score-mobile-card__header">
+                      <span class="stage-score-mobile-card__rank">Et {{ snapshot.stage_order }}</span>
+                      <div class="stage-score-mobile-card__main">
+                        <div class="stage-score-mobile-card__name-row">
+                          <strong>Daguitslag</strong>
+                          {% if snapshot.winner_names %}
+                            <span class="stage-score-mobile-card__leaders">
+                              <span class="stage-score-table__icon stage-score-table__icon--win" aria-hidden="true">&#9733;</span>
+                              <span>{{ snapshot.winner_names|join(", ") }}</span>
+                            </span>
+                          {% endif %}
+                        </div>
+                        <span class="stage-score-mobile-card__total">Topscore {{ snapshot.winner_score }} pts</span>
+                      </div>
+                    </div>
+
+                    <div class="stage-score-mobile-card__grid">
+                      {% for entry in snapshot.entries %}
+                        <div class="stage-score-mobile-stage{% if entry.is_stage_winner %} stage-score-mobile-stage--winner{% endif %}">
+                          <div class="stage-score-mobile-stage__top">
+                            <span class="stage-score-mobile-stage__label">P{{ entry.rank }}</span>
+                            <span class="stage-score-mobile-stage__name">{{ entry.username or entry.name }}</span>
+                          </div>
+                          <div class="stage-score-mobile-stage__bottom">
+                            <span class="stage-score-table__score{% if entry.stage_points >= 400 %} stage-score-table__score--400{% elif entry.stage_points >= 300 %} stage-score-table__score--300{% endif %}">{{ entry.stage_points }}</span>
+                            <span class="stage-score-mobile-stage__icons">
+                              {% if entry.is_stage_winner %}
+                                <span class="stage-score-table__icon stage-score-table__icon--win" title="Etappewinnaar" aria-label="Etappewinnaar">&#9733;</span>
+                              {% endif %}
+                              {% if entry.is_subleague_leader %}
+                                <span class="stage-score-table__jersey" title="Leider na deze etappe" aria-label="Leider na deze etappe"></span>
+                              {% endif %}
+                            </span>
+                          </div>
+                          <span class="stage-score-mobile-stage__subline">Totaal {{ entry.cumulative_points }} pts</span>
+                        </div>
+                      {% endfor %}
+                    </div>
+                  </article>
+                {% endfor %}
+              </div>
             </div>
           </section>
         {% endif %}
@@ -633,8 +682,8 @@
               </p>
             </div>
 
-            <div class="standings-card">
-              <table class="standings-table">
+            <div class="standings-card standings-card--cards">
+              <table class="standings-table standings-table--cards">
                 <thead>
                   <tr>
                     <th>Plek</th>
@@ -648,20 +697,20 @@
                 <tbody>
                   {% for standing in current_standings %}
                     <tr>
-                      <td>{{ standing.rank }}</td>
-                      <td>
+                      <td data-label="Plek">{{ standing.rank }}</td>
+                      <td data-label="Manager" class="standings-table__cell--manager">
                         <div class="standings-table__name">
                           <strong>{{ standing.participant.Username }}</strong>
                         </div>
                       </td>
-                      <td>{{ standing.total_points }}</td>
-                      <td>
+                      <td data-label="Totaal punten">{{ standing.total_points }}</td>
+                      <td data-label="Totaal bankpunten">
                         {{ hover_breakdown(standing.total_bench_points, standing.total_bench_points_tooltip, "Bankwissels per etappe") }}
                       </td>
-                      <td>
+                      <td data-label="Gemiste captainpunten">
                         {{ hover_breakdown(standing.total_captain_missed_points, standing.total_captain_missed_points_tooltip, "Captainwissels per etappe") }}
                       </td>
-                      <td class="standings-table__total">{{ standing.total_with_bench_and_captain }}</td>
+                      <td data-label="Totaalscore" class="standings-table__total">{{ standing.total_with_bench_and_captain }}</td>
                     </tr>
                   {% endfor %}
                 </tbody>
