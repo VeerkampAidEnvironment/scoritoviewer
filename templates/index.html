@@ -166,15 +166,11 @@
 
             <div class="lineup-grid">
               {% for lineup in lineups %}
-                <article class="lineup-card{% if lineup.is_current_user %} lineup-card--me{% endif %}">
+                <article class="lineup-card">
                   <div class="lineup-card__header">
                     <div>
-                      <h2>{{ lineup.participant.FullName }}</h2>
-                      <p>{{ lineup.participant.Username }}</p>
+                      <h2>{{ lineup.participant.Username }}</h2>
                     </div>
-                    {% if lineup.is_current_user %}
-                      <span class="me-badge">Jij</span>
-                    {% endif %}
                   </div>
 
                   {% if display_round %}
@@ -270,7 +266,7 @@
                   <ul class="picker-name-list">
                     {% for picker in rider_card.pickers %}
                       <li class="picker-name">
-                        {{ picker.full_name or picker.username }}
+                        {{ picker.username }}
                       </li>
                     {% endfor %}
                   </ul>
@@ -379,13 +375,12 @@
                 </thead>
                 <tbody>
                   {% for score in projected_final_scores %}
-                    <tr{% if score.is_current_user %} class="standings-table__row--you"{% endif %}>
+                    <tr>
                       <td>{{ score.rank }}</td>
                       <td>{{ score.current_rank if score.current_rank is not none else "-" }}</td>
                       <td>
                         <div class="standings-table__name">
-                          <strong>{{ score.participant.FullName }}</strong>
-                          <span>{{ score.participant.Username }}</span>
+                          <strong>{{ score.participant.Username }}</strong>
                         </div>
                       </td>
                       <td>{{ score.current_points if score.current_points is not none else "-" }}</td>
@@ -412,7 +407,7 @@
                 <h2>Achterstand op de leider per etappe</h2>
               </div>
               <p>
-                De lijnen tonen hoeveel punten iemand na elke voltooide etappe achter de leider stond. 0 betekent leider. Jouw lijn krijgt extra nadruk.
+                De lijnen tonen hoeveel punten iemand na elke voltooide etappe achter de leider stond. 0 betekent leider.
               </p>
             </div>
 
@@ -473,7 +468,7 @@
 
                   {% for series in score_trend_chart.series %}
                     <polyline
-                      class="score-chart__line{% if series.is_current_user %} score-chart__line--you{% endif %}"
+                      class="score-chart__line"
                       points="{{ series.points_attr }}"
                       style="stroke: {{ series.color }}; stroke-width: {{ series.stroke_width }}; opacity: {{ series.opacity }};"
                     >
@@ -481,7 +476,7 @@
                     </polyline>
                     {% for point in series.points %}
                       <circle
-                        class="score-chart__marker{% if series.is_current_user %} score-chart__marker--you{% endif %}"
+                        class="score-chart__marker"
                         cx="{{ point.x }}"
                         cy="{{ point.y }}"
                         r="{{ series.marker_radius }}"
@@ -496,14 +491,13 @@
 
               <div class="score-chart-legend">
                 {% for series in score_trend_chart.series %}
-                  <div class="score-chart-legend__item{% if series.is_current_user %} score-chart-legend__item--you{% endif %}">
-                    <span class="score-chart-legend__swatch" style="--swatch: {{ series.color }};"></span>
-                    <div class="score-chart-legend__copy">
-                      <strong>{{ series.name }}</strong>
-                      <span>{{ series.username }}</span>
-                    </div>
-                    <div class="score-chart-legend__value">
-                      <strong>{{ series.total_points }} pts</strong>
+                    <div class="score-chart-legend__item">
+                      <span class="score-chart-legend__swatch" style="--swatch: {{ series.color }};"></span>
+                      <div class="score-chart-legend__copy">
+                        <strong>{{ series.name }}</strong>
+                      </div>
+                      <div class="score-chart-legend__value">
+                        <strong>{{ series.total_points }} pts</strong>
                       <span>{% if series.gap_to_leader == 0 %}Leider{% else %}{{ series.gap_to_leader }} achter{% endif %}</span>
                     </div>
                   </div>
@@ -525,11 +519,49 @@
               </p>
             </div>
 
-            <div class="matrix-legend">
-              <span class="matrix-legend__item"><span class="stage-score-table__icon stage-score-table__icon--win" aria-hidden="true">&#9733;</span> Etappewinst</span>
-              <span class="matrix-legend__item"><span class="stage-score-table__jersey" aria-hidden="true"></span> Leider na etappe</span>
-              <span class="matrix-legend__item"><span class="stage-score-table__score stage-score-table__score--300">300+</span> Sterke score</span>
-              <span class="matrix-legend__item"><span class="stage-score-table__score stage-score-table__score--400">400+</span> Topscore</span>
+            <div class="matrix-toolbar">
+              <div class="matrix-legend">
+                <span class="matrix-legend__item"><span class="stage-score-table__icon stage-score-table__icon--win" aria-hidden="true">&#9733;</span> Etappewinst</span>
+                <span class="matrix-legend__item"><span class="stage-score-table__jersey" aria-hidden="true"></span> Leider na etappe</span>
+                <span class="matrix-legend__item"><span class="stage-score-table__score stage-score-table__score--300">300+</span> Sterke score</span>
+                <span class="matrix-legend__item"><span class="stage-score-table__score stage-score-table__score--400">400+</span> Topscore</span>
+              </div>
+
+              {% if stage_result_snapshots %}
+                <div class="stage-share-controls" data-stage-share-root>
+                  <label class="stage-share-controls__field" for="stage-share-select">
+                    <span>Deelbeeld</span>
+                    <select
+                      id="stage-share-select"
+                      class="stage-share-controls__select"
+                      data-stage-image-select
+                    >
+                      {% for snapshot in stage_result_snapshots %}
+                        <option
+                          value="{{ snapshot.market_round_id }}"
+                          {% if snapshot.market_round_id == selected_stage_result_market_round_id %}selected{% endif %}
+                        >
+                          Etappe {{ snapshot.stage_order }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                  </label>
+
+                  <button type="button" class="stage-share-controls__button" data-copy-stage-day-image>
+                    Kopieer daguitslag
+                  </button>
+                  <button type="button" class="stage-share-controls__button" data-copy-stage-standing-image>
+                    Kopieer stand
+                  </button>
+                  <button type="button" class="stage-share-controls__button" data-copy-400-list-image>
+                    Kopieer 400+-afbeelding
+                  </button>
+                  <button type="button" class="stage-share-controls__button" data-copy-300-list-image>
+                    Kopieer 300+-afbeelding
+                  </button>
+                  <span class="stage-share-controls__status" data-copy-stage-status aria-live="polite"></span>
+                </div>
+              {% endif %}
             </div>
 
             <div class="standings-card stage-score-card">
@@ -546,12 +578,12 @@
                 </thead>
                 <tbody>
                   {% for row in stage_score_matrix.rows %}
-                    <tr{% if row.is_current_user %} class="standings-table__row--you"{% endif %}>
+                    <tr>
                       <td>{{ row.rank }}</td>
                       <td>
                         <div class="standings-table__name standings-table__name--achievements">
                           <div class="standings-table__headline">
-                            <strong>{{ row.participant.FullName }}</strong>
+                            <strong>{{ row.participant.Username }}</strong>
                             <span class="manager-achievements" aria-label="{{ row.stage_win_count }} etappezeges en {{ row.leader_count }} keer leider">
                               <span class="manager-achievement" title="{{ row.stage_win_count }} etappezeges">
                                 <span class="stage-score-table__icon stage-score-table__icon--win" aria-hidden="true">&#9733;</span>
@@ -563,7 +595,6 @@
                               </span>
                             </span>
                           </div>
-                          <span>{{ row.participant.Username }}</span>
                         </div>
                       </td>
                       {% for stage_point in row.stage_points %}
@@ -616,12 +647,11 @@
                 </thead>
                 <tbody>
                   {% for standing in current_standings %}
-                    <tr{% if standing.is_current_user %} class="standings-table__row--you"{% endif %}>
+                    <tr>
                       <td>{{ standing.rank }}</td>
                       <td>
                         <div class="standings-table__name">
-                          <strong>{{ standing.participant.FullName }}</strong>
-                          <span>{{ standing.participant.Username }}</span>
+                          <strong>{{ standing.participant.Username }}</strong>
                         </div>
                       </td>
                       <td>{{ standing.total_points }}</td>
@@ -644,6 +674,1189 @@
           <h2>Nog geen gegevens</h2>
           <p>Zodra de subleague en etappe goed geladen zijn, verschijnen hier de rennerselecties.</p>
         </section>
+      {% endif %}
+
+      {% if active_view == "stages" and stage_result_snapshots %}
+        <script id="stage-result-share-payload" type="application/json">
+          {{ {
+            "subleague_name": (selected_subleague.Name if selected_subleague else ""),
+            "snapshots": stage_result_snapshots
+          }|tojson }}
+        </script>
+        <script>
+          (() => {
+            const payloadElement = document.getElementById("stage-result-share-payload");
+            const rootElement = document.querySelector("[data-stage-share-root]");
+            if (!payloadElement || !rootElement) {
+              return;
+            }
+
+            const selectElement = rootElement.querySelector("[data-stage-image-select]");
+            const buttonElement = rootElement.querySelector("[data-copy-stage-image]");
+            const statusElement = rootElement.querySelector("[data-copy-stage-status]");
+            if (!selectElement || !buttonElement || !statusElement) {
+              return;
+            }
+
+            let payload;
+            try {
+              payload = JSON.parse(payloadElement.textContent);
+            } catch (error) {
+              statusElement.textContent = "Kon etappe-afbeelding niet voorbereiden.";
+              statusElement.dataset.tone = "error";
+              return;
+            }
+
+            const snapshots = Array.isArray(payload.snapshots) ? payload.snapshots : [];
+            const subleagueName = payload.subleague_name || "Subleague";
+            if (!snapshots.length) {
+              return;
+            }
+
+            const colors = {
+              bgTop: "#021426",
+              bgBottom: "#0a2c49",
+              card: "rgba(7, 26, 45, 0.94)",
+              cardStrong: "rgba(10, 34, 58, 0.98)",
+              line: "rgba(255, 255, 255, 0.1)",
+              white: "#f6fbff",
+              soft: "rgba(246, 251, 255, 0.68)",
+              yellow: "#ffd84c",
+              yellowDeep: "#f2bd00",
+              blue: "#69aef7",
+              rowAlt: "rgba(255, 255, 255, 0.04)",
+              rowBase: "rgba(255, 255, 255, 0.02)",
+              green: "#2bb768",
+              error: "#ff8d97"
+            };
+
+            const fontSans = "\"Space Grotesk\", \"Segoe UI\", sans-serif";
+            const fontSerif = "\"Instrument Serif\", Georgia, serif";
+
+            const setStatus = (message, tone = "") => {
+              statusElement.textContent = message;
+              if (tone) {
+                statusElement.dataset.tone = tone;
+              } else {
+                delete statusElement.dataset.tone;
+              }
+            };
+
+            const roundRect = (ctx, x, y, width, height, radius) => {
+              const safeRadius = Math.min(radius, width / 2, height / 2);
+              ctx.beginPath();
+              ctx.moveTo(x + safeRadius, y);
+              ctx.lineTo(x + width - safeRadius, y);
+              ctx.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+              ctx.lineTo(x + width, y + height - safeRadius);
+              ctx.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+              ctx.lineTo(x + safeRadius, y + height);
+              ctx.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+              ctx.lineTo(x, y + safeRadius);
+              ctx.quadraticCurveTo(x, y, x + safeRadius, y);
+              ctx.closePath();
+            };
+
+            const fillRoundedRect = (ctx, x, y, width, height, radius, fillStyle, strokeStyle = "") => {
+              roundRect(ctx, x, y, width, height, radius);
+              ctx.fillStyle = fillStyle;
+              ctx.fill();
+              if (strokeStyle) {
+                ctx.strokeStyle = strokeStyle;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+              }
+            };
+
+            const fitText = (ctx, text, maxWidth) => {
+              if (ctx.measureText(text).width <= maxWidth) {
+                return text;
+              }
+
+              let value = text;
+              while (value.length > 1 && ctx.measureText(value + "...").width > maxWidth) {
+                value = value.slice(0, -1);
+              }
+              return value + "...";
+            };
+
+            const drawPill = (ctx, config) => {
+              const {
+                x,
+                y,
+                text,
+                background,
+                color,
+                border = "",
+                height = 28,
+                paddingX = 12,
+                font = `700 14px ${fontSans}`
+              } = config;
+              ctx.save();
+              ctx.font = font;
+              const width = Math.ceil(ctx.measureText(text).width) + (paddingX * 2);
+              fillRoundedRect(ctx, x, y, width, height, height / 2, background, border);
+              ctx.fillStyle = color;
+              ctx.font = font;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(text, x + (width / 2), y + (height / 2) + 0.5);
+              ctx.restore();
+              return width;
+            };
+
+            const canvasToBlob = (canvas) => new Promise((resolve, reject) => {
+              canvas.toBlob((blob) => {
+                if (blob) {
+                  resolve(blob);
+                } else {
+                  reject(new Error("Kon PNG niet opbouwen."));
+                }
+              }, "image/png");
+            });
+
+            const buildStageImageBlob = async (snapshot) => {
+              if (document.fonts && document.fonts.ready) {
+                await document.fonts.ready;
+              }
+
+              const width = 1200;
+              const rowHeight = 58;
+              const headerHeight = 220;
+              const footerHeight = 72;
+              const tableHeaderHeight = 40;
+              const height = headerHeight + tableHeaderHeight + (snapshot.entries.length * rowHeight) + footerHeight;
+              const scale = 2;
+
+              const canvas = document.createElement("canvas");
+              canvas.width = width * scale;
+              canvas.height = height * scale;
+
+              const ctx = canvas.getContext("2d");
+              ctx.scale(scale, scale);
+
+              const backgroundGradient = ctx.createLinearGradient(0, 0, 0, height);
+              backgroundGradient.addColorStop(0, colors.bgTop);
+              backgroundGradient.addColorStop(1, colors.bgBottom);
+              ctx.fillStyle = backgroundGradient;
+              ctx.fillRect(0, 0, width, height);
+
+              ctx.globalAlpha = 0.18;
+              ctx.fillStyle = colors.yellow;
+              ctx.beginPath();
+              ctx.arc(120, 84, 118, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = colors.blue;
+              ctx.beginPath();
+              ctx.arc(width - 120, 108, 132, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.globalAlpha = 1;
+
+              fillRoundedRect(ctx, 28, 24, width - 56, height - 48, 30, colors.card, colors.line);
+              fillRoundedRect(ctx, 52, 48, width - 104, height - 96, 24, colors.cardStrong, "rgba(255, 255, 255, 0.05)");
+
+              ctx.fillStyle = colors.yellow;
+              ctx.font = `700 14px ${fontSans}`;
+              ctx.textAlign = "left";
+              ctx.textBaseline = "alphabetic";
+              ctx.fillText("SCORITO SUBLEAGUE", 86, 90);
+
+              ctx.fillStyle = colors.white;
+              ctx.font = `48px ${fontSerif}`;
+              ctx.fillText(`Etappe ${snapshot.stage_order} | Uitslag`, 84, 138);
+
+              ctx.fillStyle = colors.soft;
+              ctx.font = `500 19px ${fontSans}`;
+              ctx.fillText(subleagueName, 86, 170);
+              ctx.font = `500 15px ${fontSans}`;
+              ctx.fillText("Etappepunten plus tussenstand na deze rit", 86, 194);
+
+              let pillX = 86;
+              pillX += drawPill(ctx, {
+                x: pillX,
+                y: 208,
+                text: `${snapshot.entries.length} managers`,
+                background: "rgba(255, 255, 255, 0.08)",
+                color: colors.white,
+                border: "rgba(255, 255, 255, 0.08)"
+              }) + 10;
+              pillX += drawPill(ctx, {
+                x: pillX,
+                y: 208,
+                text: `Beste score ${snapshot.winner_score} pts`,
+                background: "rgba(255, 216, 76, 0.18)",
+                color: colors.yellow,
+                border: "rgba(255, 216, 76, 0.2)"
+              });
+
+              const winnersLabel = snapshot.winner_names && snapshot.winner_names.length
+                ? snapshot.winner_names.join(", ")
+                : "Geen winnaar";
+              const leadersLabel = snapshot.leader_names && snapshot.leader_names.length
+                ? snapshot.leader_names.join(", ")
+                : "Geen leider";
+
+              ctx.font = `700 14px ${fontSans}`;
+              ctx.fillStyle = colors.white;
+              ctx.fillText("Etappewinst", 842, 98);
+              ctx.font = `500 15px ${fontSans}`;
+              ctx.fillStyle = colors.soft;
+              ctx.fillText(fitText(ctx, winnersLabel, 270), 842, 122);
+              ctx.font = `700 14px ${fontSans}`;
+              ctx.fillStyle = colors.white;
+              ctx.fillText("Leider na etappe", 842, 160);
+              ctx.font = `500 15px ${fontSans}`;
+              ctx.fillStyle = colors.soft;
+              ctx.fillText(fitText(ctx, leadersLabel, 270), 842, 184);
+
+              const tableX = 76;
+              const tableY = 270;
+              const tableWidth = width - 152;
+              const rankWidth = 76;
+              const managerWidth = 510;
+              const stageWidth = 146;
+              const totalWidth = 146;
+              const statusWidth = tableWidth - rankWidth - managerWidth - stageWidth - totalWidth;
+
+              fillRoundedRect(ctx, tableX, tableY, tableWidth, tableHeaderHeight, 18, "rgba(255, 255, 255, 0.06)");
+              ctx.font = `700 13px ${fontSans}`;
+              ctx.fillStyle = colors.soft;
+              ctx.textBaseline = "middle";
+              ctx.fillText("Plek", tableX + 22, tableY + 20);
+              ctx.fillText("Manager", tableX + rankWidth + 20, tableY + 20);
+              ctx.textAlign = "center";
+              ctx.fillText("Etappe", tableX + rankWidth + managerWidth + (stageWidth / 2), tableY + 20);
+              ctx.fillText("Totaal", tableX + rankWidth + managerWidth + stageWidth + (totalWidth / 2), tableY + 20);
+              ctx.textAlign = "left";
+              ctx.fillText("Status", tableX + rankWidth + managerWidth + stageWidth + totalWidth + 20, tableY + 20);
+
+              snapshot.entries.forEach((entry, index) => {
+                const rowY = tableY + tableHeaderHeight + (index * rowHeight);
+                const rowColor = index % 2 === 0 ? colors.rowBase : colors.rowAlt;
+                fillRoundedRect(ctx, tableX, rowY, tableWidth, rowHeight - 6, 18, rowColor);
+
+                ctx.font = `700 18px ${fontSans}`;
+                ctx.fillStyle = colors.white;
+                ctx.textAlign = "left";
+                ctx.fillText(String(entry.rank), tableX + 22, rowY + 32);
+
+                ctx.font = `700 20px ${fontSans}`;
+                const managerTextX = tableX + rankWidth + 20;
+                ctx.fillStyle = colors.white;
+                ctx.fillText(fitText(ctx, entry.username || entry.name, managerWidth - 140), managerTextX, rowY + 34);
+
+                const stageScoreX = tableX + rankWidth + managerWidth + 28;
+                const totalScoreX = stageScoreX + stageWidth;
+                const stageScoreTheme = entry.stage_points >= 400
+                  ? {
+                      background: "rgba(255, 216, 76, 0.24)",
+                      color: "#fff4c2",
+                      border: "rgba(255, 216, 76, 0.28)"
+                    }
+                  : entry.stage_points >= 300
+                    ? {
+                        background: "rgba(105, 174, 247, 0.22)",
+                        color: "#e8f6ff",
+                        border: "rgba(135, 206, 255, 0.22)"
+                      }
+                    : {
+                        background: "rgba(255, 255, 255, 0.08)",
+                        color: colors.white,
+                        border: "rgba(255, 255, 255, 0.08)"
+                      };
+
+                drawPill(ctx, {
+                  x: stageScoreX,
+                  y: rowY + 13,
+                  text: `${entry.stage_points}`,
+                  height: 28,
+                  paddingX: 16,
+                  background: stageScoreTheme.background,
+                  color: stageScoreTheme.color,
+                  border: stageScoreTheme.border,
+                  font: `700 15px ${fontSans}`
+                });
+
+                drawPill(ctx, {
+                  x: totalScoreX,
+                  y: rowY + 13,
+                  text: `${entry.cumulative_points}`,
+                  height: 28,
+                  paddingX: 16,
+                  background: "rgba(255, 255, 255, 0.08)",
+                  color: colors.white,
+                  border: "rgba(255, 255, 255, 0.08)",
+                  font: `700 15px ${fontSans}`
+                });
+
+                let badgeX = tableX + rankWidth + managerWidth + stageWidth + totalWidth + 20;
+                if (entry.is_stage_winner) {
+                  badgeX += drawPill(ctx, {
+                    x: badgeX,
+                    y: rowY + 13,
+                    text: "★ Winnaar",
+                    height: 28,
+                    paddingX: 12,
+                    background: "rgba(255, 216, 76, 0.18)",
+                    color: colors.yellow,
+                    border: "rgba(255, 216, 76, 0.2)",
+                    font: `700 13px ${fontSans}`
+                  }) + 8;
+                }
+                if (entry.is_subleague_leader) {
+                  drawPill(ctx, {
+                    x: badgeX,
+                    y: rowY + 13,
+                    text: "Gele trui",
+                    height: 28,
+                    paddingX: 12,
+                    background: "rgba(255, 216, 76, 0.26)",
+                    color: "#3c2800",
+                    border: "rgba(255, 216, 76, 0.3)",
+                    font: `700 13px ${fontSans}`
+                  });
+                }
+              });
+
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(84, height - 82);
+              ctx.lineTo(width - 84, height - 82);
+              ctx.stroke();
+
+              ctx.fillStyle = colors.soft;
+              ctx.font = `500 13px ${fontSans}`;
+              ctx.textAlign = "left";
+              ctx.fillText("Gegenereerd vanuit het Scorito subleague-overzicht", 86, height - 52);
+              ctx.textAlign = "right";
+              ctx.fillText(new Date().toLocaleDateString("nl-NL"), width - 86, height - 52);
+
+              return canvasToBlob(canvas);
+            };
+
+            const downloadBlob = (blob, filename) => {
+              const link = document.createElement("a");
+              const url = URL.createObjectURL(blob);
+              link.href = url;
+              link.download = filename;
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+              window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+            };
+
+            const copySelectedStageImage = async () => {
+              const snapshot = snapshots.find(
+                (item) => String(item.market_round_id) === String(selectElement.value)
+              );
+              if (!snapshot) {
+                setStatus("Kon de gekozen etappe niet vinden.", "error");
+                return;
+              }
+
+              buttonElement.disabled = true;
+              setStatus("Afbeelding wordt gemaakt...");
+
+              try {
+                const blob = await buildStageImageBlob(snapshot);
+                const filename = `scorito-etappe-${snapshot.stage_order}.png`;
+
+                if (navigator.clipboard && window.ClipboardItem) {
+                  await navigator.clipboard.write([
+                    new ClipboardItem({
+                      "image/png": blob
+                    })
+                  ]);
+                  setStatus(`Etappe ${snapshot.stage_order} staat nu op je klembord.`, "success");
+                } else {
+                  downloadBlob(blob, filename);
+                  setStatus("Klembordkopie wordt hier niet ondersteund, PNG is gedownload.", "warning");
+                }
+              } catch (error) {
+                setStatus(error && error.message ? error.message : "Kopieren van afbeelding mislukt.", "error");
+              } finally {
+                buttonElement.disabled = false;
+              }
+            };
+
+            buttonElement.addEventListener("click", copySelectedStageImage);
+          })();
+        </script>
+        <script>
+          (() => {
+            const payloadElement = document.getElementById("stage-result-share-payload");
+            const rootElement = document.querySelector("[data-stage-share-root]");
+            if (!payloadElement || !rootElement) {
+              return;
+            }
+
+            const selectElement = rootElement.querySelector("[data-stage-image-select]");
+            const dayButtonElement = rootElement.querySelector("[data-copy-stage-day-image]");
+            const standingButtonElement = rootElement.querySelector("[data-copy-stage-standing-image]");
+            const list400ButtonElement = rootElement.querySelector("[data-copy-400-list]");
+            const list300ButtonElement = rootElement.querySelector("[data-copy-300-list]");
+            const list400ImageButtonElement = rootElement.querySelector("[data-copy-400-list-image]");
+            const list300ImageButtonElement = rootElement.querySelector("[data-copy-300-list-image]");
+            const statusElement = rootElement.querySelector("[data-copy-stage-status]");
+            if (
+              !selectElement
+              || !dayButtonElement
+              || !standingButtonElement
+              || !statusElement
+            ) {
+              return;
+            }
+
+            let payload;
+            try {
+              payload = JSON.parse(payloadElement.textContent);
+            } catch (error) {
+              statusElement.textContent = "Kon etappe-afbeelding niet voorbereiden.";
+              statusElement.dataset.tone = "error";
+              return;
+            }
+
+            const snapshots = Array.isArray(payload.snapshots) ? payload.snapshots : [];
+            const subleagueName = payload.subleague_name || "Subleague";
+            if (!snapshots.length) {
+              return;
+            }
+
+            const colors = {
+              bgTop: "#021426",
+              bgBottom: "#0a2c49",
+              card: "rgba(7, 26, 45, 0.94)",
+              cardStrong: "rgba(10, 34, 58, 0.98)",
+              line: "rgba(255, 255, 255, 0.1)",
+              white: "#f6fbff",
+              soft: "rgba(246, 251, 255, 0.68)",
+              yellow: "#ffd84c",
+              blue: "#69aef7",
+              rowAlt: "rgba(255, 255, 255, 0.04)",
+              rowBase: "rgba(255, 255, 255, 0.02)"
+            };
+
+            const fontSans = "\"Space Grotesk\", \"Segoe UI\", sans-serif";
+            const fontSerif = "\"Instrument Serif\", Georgia, serif";
+
+            const setStatus = (message, tone = "") => {
+              statusElement.textContent = message;
+              if (tone) {
+                statusElement.dataset.tone = tone;
+              } else {
+                delete statusElement.dataset.tone;
+              }
+            };
+
+            const setButtonsDisabled = (disabled) => {
+              dayButtonElement.disabled = disabled;
+              standingButtonElement.disabled = disabled;
+              if (list400ButtonElement) {
+                list400ButtonElement.disabled = disabled;
+              }
+              if (list300ButtonElement) {
+                list300ButtonElement.disabled = disabled;
+              }
+              if (list400ImageButtonElement) {
+                list400ImageButtonElement.disabled = disabled;
+              }
+              if (list300ImageButtonElement) {
+                list300ImageButtonElement.disabled = disabled;
+              }
+            };
+
+            const roundRect = (ctx, x, y, width, height, radius) => {
+              const safeRadius = Math.min(radius, width / 2, height / 2);
+              ctx.beginPath();
+              ctx.moveTo(x + safeRadius, y);
+              ctx.lineTo(x + width - safeRadius, y);
+              ctx.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+              ctx.lineTo(x + width, y + height - safeRadius);
+              ctx.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+              ctx.lineTo(x + safeRadius, y + height);
+              ctx.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+              ctx.lineTo(x, y + safeRadius);
+              ctx.quadraticCurveTo(x, y, x + safeRadius, y);
+              ctx.closePath();
+            };
+
+            const fillRoundedRect = (ctx, x, y, width, height, radius, fillStyle, strokeStyle = "") => {
+              roundRect(ctx, x, y, width, height, radius);
+              ctx.fillStyle = fillStyle;
+              ctx.fill();
+              if (strokeStyle) {
+                ctx.strokeStyle = strokeStyle;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+              }
+            };
+
+            const fitText = (ctx, text, maxWidth) => {
+              if (ctx.measureText(text).width <= maxWidth) {
+                return text;
+              }
+
+              let value = text;
+              while (value.length > 1 && ctx.measureText(value + "...").width > maxWidth) {
+                value = value.slice(0, -1);
+              }
+              return value + "...";
+            };
+
+            const drawPill = (ctx, config) => {
+              const {
+                x,
+                y,
+                text,
+                background,
+                color,
+                border = "",
+                height = 28,
+                paddingX = 12,
+                font = `700 14px ${fontSans}`
+              } = config;
+              ctx.save();
+              ctx.font = font;
+              const width = Math.ceil(ctx.measureText(text).width) + (paddingX * 2);
+              fillRoundedRect(ctx, x, y, width, height, height / 2, background, border);
+              ctx.fillStyle = color;
+              ctx.font = font;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(text, x + (width / 2), y + (height / 2) + 0.5);
+              ctx.restore();
+              return width;
+            };
+
+            const canvasToBlob = (canvas) => new Promise((resolve, reject) => {
+              canvas.toBlob((blob) => {
+                if (blob) {
+                  resolve(blob);
+                } else {
+                  reject(new Error("Kon PNG niet opbouwen."));
+                }
+              }, "image/png");
+            });
+
+            const downloadBlob = (blob, filename) => {
+              const link = document.createElement("a");
+              const url = URL.createObjectURL(blob);
+              link.href = url;
+              link.download = filename;
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+              window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+            };
+
+            const copyTextToClipboard = async (text) => {
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+                return;
+              }
+
+              const textarea = document.createElement("textarea");
+              textarea.value = text;
+              textarea.setAttribute("readonly", "");
+              textarea.style.position = "absolute";
+              textarea.style.left = "-9999px";
+              document.body.appendChild(textarea);
+              textarea.select();
+
+              const copied = document.execCommand("copy");
+              textarea.remove();
+
+              if (!copied) {
+                throw new Error("Kopieren van tekst mislukt.");
+              }
+            };
+
+            const buildRankedEntries = (entries, mode) => {
+              const sortedEntries = [...entries].sort((left, right) => {
+                if (mode === "standings") {
+                  if (right.cumulative_points !== left.cumulative_points) {
+                    return right.cumulative_points - left.cumulative_points;
+                  }
+                  if (right.stage_points !== left.stage_points) {
+                    return right.stage_points - left.stage_points;
+                  }
+                } else {
+                  if (right.stage_points !== left.stage_points) {
+                    return right.stage_points - left.stage_points;
+                  }
+                  if (right.cumulative_points !== left.cumulative_points) {
+                    return right.cumulative_points - left.cumulative_points;
+                  }
+                }
+                return left.name.localeCompare(right.name, "nl");
+              });
+
+              let previousKey = "";
+              let currentRank = 0;
+
+              return sortedEntries.map((entry, index) => {
+                const rankKey = mode === "standings"
+                  ? `${entry.cumulative_points}|${entry.stage_points}`
+                  : `${entry.stage_points}|${entry.cumulative_points}`;
+
+                if (rankKey !== previousKey) {
+                  currentRank = index + 1;
+                  previousKey = rankKey;
+                }
+
+                return {
+                  ...entry,
+                  share_rank: currentRank
+                };
+              });
+            };
+
+            const buildThresholdScoreEntries = (threshold) => {
+              const matches = [];
+              snapshots.forEach((snapshot) => {
+                const stageOrder = Number(snapshot.stage_order || 0);
+                const entries = Array.isArray(snapshot.entries) ? snapshot.entries : [];
+
+                entries.forEach((entry) => {
+                  const stagePoints = Number(entry.stage_points || 0);
+                  if (stagePoints < threshold) {
+                    return;
+                  }
+
+                  matches.push({
+                    stage_order: stageOrder,
+                    name: entry.name || entry.username || "Onbekend",
+                    username: entry.username || "",
+                    stage_points: stagePoints
+                  });
+                });
+              });
+
+              return matches.sort((left, right) => (
+                right.stage_points - left.stage_points
+                || left.stage_order - right.stage_order
+                || left.name.localeCompare(right.name, "nl")
+              ));
+            };
+
+            const buildThresholdScoreList = (threshold) => {
+              const matches = buildThresholdScoreEntries(threshold);
+
+              if (!matches.length) {
+                return `Geen ${threshold}+-scores gevonden in ${subleagueName}.`;
+              }
+
+              const lines = [
+                `${threshold}+-scores | ${subleagueName}`,
+                `${matches.length} prestaties`,
+                ""
+              ];
+
+              matches.forEach((item) => {
+                lines.push(
+                  `Etappe ${item.stage_order} - ${item.name}: ${item.stage_points} pts`
+                );
+              });
+
+              return lines.join("\n");
+            };
+
+            const buildThresholdScoreImageBlob = async (threshold) => {
+              if (document.fonts && document.fonts.ready) {
+                await document.fonts.ready;
+              }
+
+              const matches = buildThresholdScoreEntries(threshold);
+              if (!matches.length) {
+                throw new Error(`Geen ${threshold}+-scores gevonden.`);
+              }
+
+              const width = 1120;
+              const rowHeight = 54;
+              const headerHeight = 204;
+              const footerHeight = 72;
+              const tableHeaderHeight = 40;
+              const height = headerHeight + tableHeaderHeight + (matches.length * rowHeight) + footerHeight;
+              const scale = 2;
+
+              const canvas = document.createElement("canvas");
+              canvas.width = width * scale;
+              canvas.height = height * scale;
+
+              const ctx = canvas.getContext("2d");
+              ctx.scale(scale, scale);
+
+              const backgroundGradient = ctx.createLinearGradient(0, 0, 0, height);
+              backgroundGradient.addColorStop(0, colors.bgTop);
+              backgroundGradient.addColorStop(1, colors.bgBottom);
+              ctx.fillStyle = backgroundGradient;
+              ctx.fillRect(0, 0, width, height);
+
+              ctx.globalAlpha = 0.16;
+              ctx.fillStyle = threshold >= 400 ? colors.yellow : colors.blue;
+              ctx.beginPath();
+              ctx.arc(122, 84, 116, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.beginPath();
+              ctx.arc(width - 130, 102, 128, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.globalAlpha = 1;
+
+              fillRoundedRect(ctx, 28, 24, width - 56, height - 48, 30, colors.card, colors.line);
+              fillRoundedRect(ctx, 52, 48, width - 104, height - 96, 24, colors.cardStrong, "rgba(255, 255, 255, 0.05)");
+
+              ctx.fillStyle = threshold >= 400 ? colors.yellow : "#cfe7ff";
+              ctx.font = `700 14px ${fontSans}`;
+              ctx.textAlign = "left";
+              ctx.textBaseline = "alphabetic";
+              ctx.fillText("SCORITO SUBLEAGUE", 86, 90);
+
+              ctx.fillStyle = colors.white;
+              ctx.font = `48px ${fontSerif}`;
+              ctx.fillText(`${threshold}+-scores`, 84, 138);
+
+              ctx.fillStyle = colors.soft;
+              ctx.font = `500 19px ${fontSans}`;
+              ctx.fillText(subleagueName, 86, 170);
+              ctx.font = `500 15px ${fontSans}`;
+              ctx.fillText("Alle etappes met deze drempel of hoger", 86, 194);
+
+              let pillX = 86;
+              pillX += drawPill(ctx, {
+                x: pillX,
+                y: 208,
+                text: `${matches.length} prestaties`,
+                background: "rgba(255, 255, 255, 0.08)",
+                color: colors.white,
+                border: "rgba(255, 255, 255, 0.08)"
+              }) + 10;
+              pillX += drawPill(ctx, {
+                x: pillX,
+                y: 208,
+                text: `${threshold}+ punten`,
+                background: threshold >= 400 ? "rgba(255, 216, 76, 0.18)" : "rgba(105, 174, 247, 0.18)",
+                color: threshold >= 400 ? colors.yellow : "#cfe7ff",
+                border: threshold >= 400 ? "rgba(255, 216, 76, 0.2)" : "rgba(105, 174, 247, 0.2)"
+              });
+
+              const tableX = 76;
+              const tableY = 254;
+              const tableWidth = width - 152;
+              const rankWidth = 76;
+              const stageWidth = 128;
+              const managerWidth = 560;
+              const scoreWidth = 140;
+
+              fillRoundedRect(ctx, tableX, tableY, tableWidth, tableHeaderHeight, 18, "rgba(255, 255, 255, 0.06)");
+              ctx.font = `700 13px ${fontSans}`;
+              ctx.fillStyle = colors.soft;
+              ctx.textBaseline = "middle";
+              ctx.textAlign = "left";
+              ctx.fillText("Plek", tableX + 22, tableY + 20);
+              ctx.fillText("Etappe", tableX + rankWidth + 20, tableY + 20);
+              ctx.fillText("Manager", tableX + rankWidth + stageWidth + 20, tableY + 20);
+              ctx.textAlign = "center";
+              ctx.fillText("Score", tableX + rankWidth + stageWidth + managerWidth + (scoreWidth / 2), tableY + 20);
+
+              matches.forEach((entry, index) => {
+                const rowY = tableY + tableHeaderHeight + (index * rowHeight);
+                const rowColor = index % 2 === 0 ? colors.rowBase : colors.rowAlt;
+                fillRoundedRect(ctx, tableX, rowY, tableWidth, rowHeight - 6, 18, rowColor);
+
+                ctx.font = `700 18px ${fontSans}`;
+                ctx.fillStyle = colors.white;
+                ctx.textAlign = "left";
+                ctx.fillText(String(index + 1), tableX + 22, rowY + 31);
+                ctx.fillText(`Et ${entry.stage_order}`, tableX + rankWidth + 20, rowY + 31);
+
+                ctx.font = `700 20px ${fontSans}`;
+                ctx.fillText(
+                  fitText(ctx, entry.username || entry.name, managerWidth - 100),
+                  tableX + rankWidth + stageWidth + 20,
+                  rowY + 31
+                );
+
+                drawPill(ctx, {
+                  x: tableX + rankWidth + stageWidth + managerWidth + 24,
+                  y: rowY + 11,
+                  text: `${entry.stage_points}`,
+                  height: 30,
+                  paddingX: 16,
+                  background: threshold >= 400
+                    ? "rgba(255, 216, 76, 0.24)"
+                    : "rgba(105, 174, 247, 0.22)",
+                  color: threshold >= 400 ? "#fff4c2" : "#e8f6ff",
+                  border: threshold >= 400
+                    ? "rgba(255, 216, 76, 0.28)"
+                    : "rgba(135, 206, 255, 0.22)",
+                  font: `700 15px ${fontSans}`
+                });
+              });
+
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(84, height - 82);
+              ctx.lineTo(width - 84, height - 82);
+              ctx.stroke();
+
+              ctx.fillStyle = colors.soft;
+              ctx.font = `500 13px ${fontSans}`;
+              ctx.textAlign = "left";
+              ctx.fillText("Gegenereerd vanuit het Scorito subleague-overzicht", 86, height - 52);
+              ctx.textAlign = "right";
+              ctx.fillText(new Date().toLocaleDateString("nl-NL"), width - 86, height - 52);
+
+              return canvasToBlob(canvas);
+            };
+
+            const buildStageImageBlob = async (snapshot, mode) => {
+              if (document.fonts && document.fonts.ready) {
+                await document.fonts.ready;
+              }
+
+              const isStandingsMode = mode === "standings";
+              const winners = Array.isArray(snapshot.winner_names) ? snapshot.winner_names : [];
+              const leaders = Array.isArray(snapshot.leader_names) ? snapshot.leader_names : [];
+              const entries = buildRankedEntries(
+                Array.isArray(snapshot.entries) ? snapshot.entries : [],
+                isStandingsMode ? "standings" : "day"
+              );
+
+              const width = 1200;
+              const rowHeight = 58;
+              const headerHeight = 220;
+              const footerHeight = 72;
+              const tableHeaderHeight = 40;
+              const height = headerHeight + tableHeaderHeight + (entries.length * rowHeight) + footerHeight;
+              const scale = 2;
+
+              const canvas = document.createElement("canvas");
+              canvas.width = width * scale;
+              canvas.height = height * scale;
+
+              const ctx = canvas.getContext("2d");
+              ctx.scale(scale, scale);
+
+              const backgroundGradient = ctx.createLinearGradient(0, 0, 0, height);
+              backgroundGradient.addColorStop(0, colors.bgTop);
+              backgroundGradient.addColorStop(1, colors.bgBottom);
+              ctx.fillStyle = backgroundGradient;
+              ctx.fillRect(0, 0, width, height);
+
+              ctx.globalAlpha = 0.18;
+              ctx.fillStyle = colors.yellow;
+              ctx.beginPath();
+              ctx.arc(120, 84, 118, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = colors.blue;
+              ctx.beginPath();
+              ctx.arc(width - 120, 108, 132, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.globalAlpha = 1;
+
+              fillRoundedRect(ctx, 28, 24, width - 56, height - 48, 30, colors.card, colors.line);
+              fillRoundedRect(ctx, 52, 48, width - 104, height - 96, 24, colors.cardStrong, "rgba(255, 255, 255, 0.05)");
+
+              ctx.fillStyle = colors.yellow;
+              ctx.font = `700 14px ${fontSans}`;
+              ctx.textAlign = "left";
+              ctx.textBaseline = "alphabetic";
+              ctx.fillText("SCORITO SUBLEAGUE", 86, 90);
+
+              ctx.fillStyle = colors.white;
+              ctx.font = `48px ${fontSerif}`;
+              ctx.fillText(
+                isStandingsMode
+                  ? `Etappe ${snapshot.stage_order} | Stand na etappe`
+                  : `Etappe ${snapshot.stage_order} | Daguitslag`,
+                84,
+                138
+              );
+
+              ctx.fillStyle = colors.soft;
+              ctx.font = `500 19px ${fontSans}`;
+              ctx.fillText(subleagueName, 86, 170);
+              ctx.font = `500 15px ${fontSans}`;
+              ctx.fillText(
+                isStandingsMode
+                  ? "Subleague-stand direct na deze rit"
+                  : "Etappepunten plus tussenstand na deze rit",
+                86,
+                194
+              );
+
+              let pillX = 86;
+              pillX += drawPill(ctx, {
+                x: pillX,
+                y: 208,
+                text: `${entries.length} managers`,
+                background: "rgba(255, 255, 255, 0.08)",
+                color: colors.white,
+                border: "rgba(255, 255, 255, 0.08)"
+              }) + 10;
+              pillX += drawPill(ctx, {
+                x: pillX,
+                y: 208,
+                text: isStandingsMode
+                  ? `${leaders.length} leider${leaders.length === 1 ? "" : "s"}`
+                  : `Beste score ${snapshot.winner_score} pts`,
+                background: isStandingsMode ? "rgba(105, 174, 247, 0.18)" : "rgba(255, 216, 76, 0.18)",
+                color: isStandingsMode ? "#cfe7ff" : colors.yellow,
+                border: isStandingsMode ? "rgba(105, 174, 247, 0.2)" : "rgba(255, 216, 76, 0.2)"
+              });
+
+              const winnersLabel = winners.length ? winners.join(", ") : "Geen winnaar";
+              const leadersLabel = leaders.length ? leaders.join(", ") : "Geen leider";
+
+              ctx.font = `700 14px ${fontSans}`;
+              ctx.fillStyle = colors.white;
+              ctx.fillText(isStandingsMode ? "Leider na etappe" : "Etappewinst", 842, 98);
+              ctx.font = `500 15px ${fontSans}`;
+              ctx.fillStyle = colors.soft;
+              ctx.fillText(fitText(ctx, isStandingsMode ? leadersLabel : winnersLabel, 270), 842, 122);
+              ctx.font = `700 14px ${fontSans}`;
+              ctx.fillStyle = colors.white;
+              ctx.fillText(isStandingsMode ? "Etappewinst" : "Leider na etappe", 842, 160);
+              ctx.font = `500 15px ${fontSans}`;
+              ctx.fillStyle = colors.soft;
+              ctx.fillText(fitText(ctx, isStandingsMode ? winnersLabel : leadersLabel, 270), 842, 184);
+
+              const tableX = 76;
+              const tableY = 270;
+              const tableWidth = width - 152;
+              const rankWidth = 76;
+              const managerWidth = 510;
+              const scoreWidth = 146;
+
+              fillRoundedRect(ctx, tableX, tableY, tableWidth, tableHeaderHeight, 18, "rgba(255, 255, 255, 0.06)");
+              ctx.font = `700 13px ${fontSans}`;
+              ctx.fillStyle = colors.soft;
+              ctx.textBaseline = "middle";
+              ctx.fillText("Plek", tableX + 22, tableY + 20);
+              ctx.fillText("Manager", tableX + rankWidth + 20, tableY + 20);
+              ctx.textAlign = "center";
+              ctx.fillText(
+                isStandingsMode ? "Totaal" : "Etappe",
+                tableX + rankWidth + managerWidth + (scoreWidth / 2),
+                tableY + 20
+              );
+              ctx.fillText(
+                isStandingsMode ? "Etappe" : "Totaal",
+                tableX + rankWidth + managerWidth + scoreWidth + (scoreWidth / 2),
+                tableY + 20
+              );
+              ctx.textAlign = "left";
+              ctx.fillText("Status", tableX + rankWidth + managerWidth + (scoreWidth * 2) + 20, tableY + 20);
+
+              entries.forEach((entry, index) => {
+                const rowY = tableY + tableHeaderHeight + (index * rowHeight);
+                const rowColor = index % 2 === 0 ? colors.rowBase : colors.rowAlt;
+                fillRoundedRect(ctx, tableX, rowY, tableWidth, rowHeight - 6, 18, rowColor);
+
+                ctx.font = `700 18px ${fontSans}`;
+                ctx.fillStyle = colors.white;
+                ctx.textAlign = "left";
+                ctx.fillText(String(entry.share_rank), tableX + 22, rowY + 32);
+
+                ctx.font = `700 20px ${fontSans}`;
+                const managerTextX = tableX + rankWidth + 20;
+                ctx.fillStyle = colors.white;
+                ctx.fillText(fitText(ctx, entry.username || entry.name, managerWidth - 140), managerTextX, rowY + 34);
+
+                const firstScoreX = tableX + rankWidth + managerWidth + 28;
+                const secondScoreX = firstScoreX + scoreWidth;
+                const stageScoreTheme = entry.stage_points >= 400
+                  ? {
+                      background: "rgba(255, 216, 76, 0.24)",
+                      color: "#fff4c2",
+                      border: "rgba(255, 216, 76, 0.28)"
+                    }
+                  : entry.stage_points >= 300
+                    ? {
+                        background: "rgba(105, 174, 247, 0.22)",
+                        color: "#e8f6ff",
+                        border: "rgba(135, 206, 255, 0.22)"
+                      }
+                    : {
+                        background: "rgba(255, 255, 255, 0.08)",
+                        color: colors.white,
+                        border: "rgba(255, 255, 255, 0.08)"
+                      };
+
+                drawPill(ctx, {
+                  x: isStandingsMode ? secondScoreX : firstScoreX,
+                  y: rowY + 13,
+                  text: `${entry.stage_points}`,
+                  height: 28,
+                  paddingX: 16,
+                  background: stageScoreTheme.background,
+                  color: stageScoreTheme.color,
+                  border: stageScoreTheme.border,
+                  font: `700 15px ${fontSans}`
+                });
+
+                drawPill(ctx, {
+                  x: isStandingsMode ? firstScoreX : secondScoreX,
+                  y: rowY + 13,
+                  text: `${entry.cumulative_points}`,
+                  height: 28,
+                  paddingX: 16,
+                  background: "rgba(255, 255, 255, 0.08)",
+                  color: colors.white,
+                  border: "rgba(255, 255, 255, 0.08)",
+                  font: `700 15px ${fontSans}`
+                });
+
+                let badgeX = tableX + rankWidth + managerWidth + (scoreWidth * 2) + 20;
+                if (entry.is_stage_winner) {
+                  badgeX += drawPill(ctx, {
+                    x: badgeX,
+                    y: rowY + 13,
+                    text: "Winnaar",
+                    height: 28,
+                    paddingX: 12,
+                    background: "rgba(255, 216, 76, 0.18)",
+                    color: colors.yellow,
+                    border: "rgba(255, 216, 76, 0.2)",
+                    font: `700 13px ${fontSans}`
+                  }) + 8;
+                }
+                if (entry.is_subleague_leader) {
+                  drawPill(ctx, {
+                    x: badgeX,
+                    y: rowY + 13,
+                    text: "Gele trui",
+                    height: 28,
+                    paddingX: 12,
+                    background: "rgba(255, 216, 76, 0.26)",
+                    color: "#3c2800",
+                    border: "rgba(255, 216, 76, 0.3)",
+                    font: `700 13px ${fontSans}`
+                  });
+                }
+              });
+
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(84, height - 82);
+              ctx.lineTo(width - 84, height - 82);
+              ctx.stroke();
+
+              ctx.fillStyle = colors.soft;
+              ctx.font = `500 13px ${fontSans}`;
+              ctx.textAlign = "left";
+              ctx.fillText("Gegenereerd vanuit het Scorito subleague-overzicht", 86, height - 52);
+              ctx.textAlign = "right";
+              ctx.fillText(new Date().toLocaleDateString("nl-NL"), width - 86, height - 52);
+
+              return canvasToBlob(canvas);
+            };
+
+            const copySelectedStageImage = async (mode) => {
+              const snapshot = snapshots.find(
+                (item) => String(item.market_round_id) === String(selectElement.value)
+              );
+              if (!snapshot) {
+                setStatus("Kon de gekozen etappe niet vinden.", "error");
+                return;
+              }
+
+              setButtonsDisabled(true);
+              setStatus(
+                mode === "standings"
+                  ? "Stand-afbeelding wordt gemaakt..."
+                  : "Daguitslag-afbeelding wordt gemaakt..."
+              );
+
+              try {
+                const blob = await buildStageImageBlob(snapshot, mode);
+                const filename = mode === "standings"
+                  ? `scorito-etappe-${snapshot.stage_order}-stand.png`
+                  : `scorito-etappe-${snapshot.stage_order}-daguitslag.png`;
+
+                if (navigator.clipboard && "ClipboardItem" in window) {
+                  await navigator.clipboard.write([
+                    new ClipboardItem({
+                      "image/png": blob
+                    })
+                  ]);
+                  setStatus(
+                    mode === "standings"
+                      ? `Stand na etappe ${snapshot.stage_order} staat nu op je klembord.`
+                      : `Daguitslag van etappe ${snapshot.stage_order} staat nu op je klembord.`,
+                    "success"
+                  );
+                } else {
+                  downloadBlob(blob, filename);
+                  setStatus("Klembordkopie wordt hier niet ondersteund, PNG is gedownload.", "warning");
+                }
+              } catch (error) {
+                setStatus(error && error.message ? error.message : "Kopieren van afbeelding mislukt.", "error");
+              } finally {
+                setButtonsDisabled(false);
+              }
+            };
+
+            const copyThresholdScoreList = async (threshold) => {
+              setButtonsDisabled(true);
+              setStatus(`${threshold}+-lijst wordt gekopieerd...`);
+
+              try {
+                const text = buildThresholdScoreList(threshold);
+                await copyTextToClipboard(text);
+                setStatus(`${threshold}+-lijst staat nu op je klembord.`, "success");
+              } catch (error) {
+                setStatus(error && error.message ? error.message : "Kopieren van lijst mislukt.", "error");
+              } finally {
+                setButtonsDisabled(false);
+              }
+            };
+
+            const copyThresholdScoreImage = async (threshold) => {
+              setButtonsDisabled(true);
+              setStatus(`${threshold}+-afbeelding wordt gemaakt...`);
+
+              try {
+                const blob = await buildThresholdScoreImageBlob(threshold);
+                const filename = `scorito-${threshold}-plus-lijst.png`;
+
+                if (navigator.clipboard && "ClipboardItem" in window) {
+                  await navigator.clipboard.write([
+                    new ClipboardItem({
+                      "image/png": blob
+                    })
+                  ]);
+                  setStatus(`${threshold}+-afbeelding staat nu op je klembord.`, "success");
+                } else {
+                  downloadBlob(blob, filename);
+                  setStatus("Klembordkopie wordt hier niet ondersteund, PNG is gedownload.", "warning");
+                }
+              } catch (error) {
+                setStatus(error && error.message ? error.message : "Kopieren van afbeelding mislukt.", "error");
+              } finally {
+                setButtonsDisabled(false);
+              }
+            };
+
+            dayButtonElement.addEventListener("click", () => copySelectedStageImage("day"));
+            standingButtonElement.addEventListener("click", () => copySelectedStageImage("standings"));
+            if (list400ButtonElement) {
+              list400ButtonElement.addEventListener("click", () => copyThresholdScoreList(400));
+            }
+            if (list300ButtonElement) {
+              list300ButtonElement.addEventListener("click", () => copyThresholdScoreList(300));
+            }
+            if (list400ImageButtonElement) {
+              list400ImageButtonElement.addEventListener("click", () => copyThresholdScoreImage(400));
+            }
+            if (list300ImageButtonElement) {
+              list300ImageButtonElement.addEventListener("click", () => copyThresholdScoreImage(300));
+            }
+          })();
+        </script>
       {% endif %}
     </div>
   </body>

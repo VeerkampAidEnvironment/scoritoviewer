@@ -397,8 +397,8 @@ class ScoritoClient:
 
         lineups.sort(
             key=lambda item: (
-                item["participant"].get("FullName", "").lower(),
                 item["participant"].get("Username", "").lower(),
+                item["participant"].get("FullName", "").lower(),
             )
         )
         self._apply_subleague_pick_stats(lineups)
@@ -614,8 +614,8 @@ class ScoritoClient:
                 -item["total_projected_final_points"],
                 -item["individual_final_points"],
                 -item["teammate_winner_points"],
-                item["participant"].get("FullName", "").lower(),
                 item["participant"].get("Username", "").lower(),
+                item["participant"].get("FullName", "").lower(),
             )
         )
         for index, item in enumerate(scores, start=1):
@@ -840,8 +840,8 @@ class ScoritoClient:
         rows.sort(
             key=lambda item: (
                 -item["total_points"],
-                item["participant"].get("FullName", "").lower(),
                 item["participant"].get("Username", "").lower(),
+                item["participant"].get("FullName", "").lower(),
             )
         )
         for index, item in enumerate(rows, start=1):
@@ -1018,8 +1018,8 @@ class ScoritoClient:
         standings.sort(
             key=lambda item: (
                 -item["total_points"],
-                item["participant"].get("FullName", "").lower(),
                 item["participant"].get("Username", "").lower(),
+                item["participant"].get("FullName", "").lower(),
             )
         )
         for index, item in enumerate(standings, start=1):

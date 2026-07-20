@@ -749,18 +749,9 @@ img {
   stroke-linejoin: round;
 }
 
-.score-chart__line--you {
-  filter: drop-shadow(0 0 10px rgba(255, 216, 76, 0.22));
-}
-
 .score-chart__marker {
   stroke: rgba(8, 28, 48, 0.96);
   stroke-width: 1.4;
-}
-
-.score-chart__marker--you {
-  stroke: rgba(255, 255, 255, 0.9);
-  stroke-width: 2;
 }
 
 .score-chart-legend {
@@ -780,11 +771,6 @@ img {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.05);
-}
-
-.score-chart-legend__item--you {
-  border-color: rgba(255, 216, 76, 0.28);
-  background: linear-gradient(135deg, rgba(255, 216, 76, 0.12), rgba(255, 255, 255, 0.05));
 }
 
 .score-chart-legend__swatch {
@@ -837,6 +823,15 @@ img {
   margin: 0 0 12px;
 }
 
+.matrix-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
 .matrix-legend__item {
   display: inline-flex;
   align-items: center;
@@ -849,6 +844,84 @@ img {
   color: rgba(246, 251, 255, 0.88);
   font-size: 0.78rem;
   font-weight: 600;
+}
+
+.stage-share-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: end;
+  gap: 10px;
+}
+
+.stage-share-controls__field {
+  display: grid;
+  gap: 6px;
+  min-width: 136px;
+}
+
+.stage-share-controls__field span {
+  color: rgba(246, 251, 255, 0.68);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stage-share-controls__select,
+.stage-share-controls__button {
+  min-height: 42px;
+  border-radius: 14px;
+  font: inherit;
+}
+
+.stage-share-controls__select {
+  min-width: 140px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--white);
+}
+
+.stage-share-controls__button {
+  padding: 0 16px;
+  border: 1px solid rgba(255, 216, 76, 0.2);
+  background: linear-gradient(135deg, rgba(255, 216, 76, 0.22), rgba(255, 255, 255, 0.06));
+  color: var(--white);
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.stage-share-controls__button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(255, 216, 76, 0.34);
+  background: linear-gradient(135deg, rgba(255, 216, 76, 0.28), rgba(255, 255, 255, 0.08));
+}
+
+.stage-share-controls__button:disabled {
+  opacity: 0.72;
+  cursor: progress;
+}
+
+.stage-share-controls__status {
+  min-width: 220px;
+  color: rgba(246, 251, 255, 0.72);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.stage-share-controls__status[data-tone="success"] {
+  color: #bdf3cb;
+}
+
+.stage-share-controls__status[data-tone="warning"] {
+  color: #ffe693;
+}
+
+.stage-share-controls__status[data-tone="error"] {
+  color: #ffb4bc;
 }
 
 .stage-score-card {
@@ -1163,11 +1236,6 @@ img {
   color: var(--ink);
 }
 
-.lineup-card--me {
-  border-color: rgba(242, 189, 0, 0.28);
-  box-shadow: 0 22px 52px rgba(242, 189, 0, 0.16);
-}
-
 .lineup-card__header {
   display: flex;
   justify-content: space-between;
@@ -1194,7 +1262,6 @@ img {
 }
 
 .stat-pill,
-.me-badge,
 .rider__points,
 .rider__captain,
 .picker__badge,
@@ -1217,11 +1284,6 @@ img {
 .stat-pill--dark {
   background: linear-gradient(135deg, var(--navy), #193f68);
   color: var(--white);
-}
-
-.me-badge {
-  background: rgba(255, 216, 76, 0.26);
-  color: #735400;
 }
 
 .rider-list,
@@ -1531,6 +1593,22 @@ img {
 
   .section-heading p {
     max-width: none;
+  }
+
+  .matrix-toolbar,
+  .stage-share-controls {
+    align-items: stretch;
+  }
+
+  .stage-share-controls {
+    width: 100%;
+  }
+
+  .stage-share-controls__field,
+  .stage-share-controls__select,
+  .stage-share-controls__button,
+  .stage-share-controls__status {
+    width: 100%;
   }
 
   .standings-card {

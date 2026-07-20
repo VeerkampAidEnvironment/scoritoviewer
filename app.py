@@ -268,7 +268,6 @@ def build_rider_picker_view(lineups: list[dict]) -> list[dict]:
                 {
                     "full_name": participant.get("FullName", ""),
                     "username": participant.get("Username", ""),
-                    "is_current_user": lineup.get("is_current_user", False),
                     "is_captain": rider.is_captain,
                     "display_points": rider.display_points,
                 }
@@ -278,8 +277,8 @@ def build_rider_picker_view(lineups: list[dict]) -> list[dict]:
     for card in rider_card_list:
         card["pickers"].sort(
             key=lambda picker: (
-                picker["full_name"].lower(),
                 picker["username"].lower(),
+                picker["full_name"].lower(),
             )
         )
 
@@ -360,8 +359,8 @@ def merge_current_standings_into_projected_final_scores(
             -item["total_projected_final_points"],
             -item["individual_final_points"],
             -item["teammate_winner_points"],
-            item["participant"].get("FullName", "").lower(),
             item["participant"].get("Username", "").lower(),
+            item["participant"].get("FullName", "").lower(),
         )
     )
     for index, item in enumerate(projected_final_scores, start=1):
@@ -482,10 +481,8 @@ def build_score_trend_chart(stage_score_matrix: dict) -> dict:
     series = []
     palette_index = 0
     for row in rows:
-        is_current_user = bool(row.get("is_current_user"))
-        color = "#ffd84c" if is_current_user else palette[palette_index % len(palette)]
-        if not is_current_user:
-            palette_index += 1
+        color = palette[palette_index % len(palette)]
+        palette_index += 1
 
         cumulative_points = row.get("cumulative_points_by_round", {})
         point_dicts = []
@@ -508,13 +505,12 @@ def build_score_trend_chart(stage_score_matrix: dict) -> dict:
         final_total_points = int(cumulative_points.get(stage_ids[-1], 0))
         series.append(
             {
-                "name": participant.get("FullName", ""),
+                "name": participant.get("Username", "") or participant.get("FullName", ""),
                 "username": participant.get("Username", ""),
-                "is_current_user": is_current_user,
                 "color": color,
-                "stroke_width": 4 if is_current_user else 2.2,
-                "opacity": 1 if is_current_user else 0.65,
-                "marker_radius": 4.2 if is_current_user else 2.8,
+                "stroke_width": 2.4,
+                "opacity": 0.82,
+                "marker_radius": 3.2,
                 "points": point_dicts,
                 "points_attr": points_attr,
                 "total_points": row.get("total_points", 0),
@@ -533,6 +529,79 @@ def build_score_trend_chart(stage_score_matrix: dict) -> dict:
         "y_ticks": y_ticks,
         "series": series,
     }
+
+
+def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
+    stages = stage_score_matrix.get("stages", [])
+    rows = stage_score_matrix.get("rows", [])
+    if not stages or not rows:
+        return []
+
+    ordered_stages = sorted(stages, key=lambda item: int(item.get("stage_order") or 0))
+    snapshots: list[dict] = []
+
+    for stage in ordered_stages:
+        market_round_id = int(stage.get("market_round_id") or 0)
+        if market_round_id <= 0:
+            continue
+
+        entries: list[dict] = []
+        for row in rows:
+            participant = row["participant"]
+            stage_meta = next(
+                (
+                    item
+                    for item in row.get("stage_points", [])
+                    if int(item.get("market_round_id") or 0) == market_round_id
+                ),
+                None,
+            )
+            stage_points = int(row.get("stage_points_by_round", {}).get(market_round_id, 0))
+            cumulative_points = int(row.get("cumulative_points_by_round", {}).get(market_round_id, 0))
+            entries.append(
+                {
+                    "name": participant.get("Username", "") or participant.get("FullName", ""),
+                    "username": participant.get("Username", ""),
+                    "stage_points": stage_points,
+                    "cumulative_points": cumulative_points,
+                    "is_stage_winner": bool(stage_meta and stage_meta.get("is_stage_winner")),
+                    "is_subleague_leader": bool(stage_meta and stage_meta.get("is_subleague_leader")),
+                }
+            )
+
+        entries.sort(
+            key=lambda item: (
+                -item["stage_points"],
+                -item["cumulative_points"],
+                item["username"].lower(),
+                item["name"].lower(),
+            )
+        )
+
+        last_score_key: tuple[int, int] | None = None
+        current_rank = 0
+        for position, entry in enumerate(entries, start=1):
+            score_key = (entry["stage_points"], entry["cumulative_points"])
+            if score_key != last_score_key:
+                current_rank = position
+                last_score_key = score_key
+            entry["rank"] = current_rank
+
+        winner_names = [entry["username"] for entry in entries if entry["is_stage_winner"]]
+        leader_names = [entry["username"] for entry in entries if entry["is_subleague_leader"]]
+
+        snapshots.append(
+            {
+                "market_round_id": market_round_id,
+                "stage_order": int(stage.get("stage_order") or 0),
+                "winner_score": int(stage.get("winner_score") or 0),
+                "winner_names": winner_names,
+                "leader_names": leader_names,
+                "entries": entries,
+            }
+        )
+
+    return snapshots
 
 
 @app.route("/")
@@ -560,6 +629,8 @@ def index():
         "projected_final_scores": [],
         "stage_score_matrix": {"stages": [], "rows": []},
         "score_trend_chart": {"stages": [], "series": [], "y_ticks": [], "width": 0, "height": 0},
+        "stage_result_snapshots": [],
+        "selected_stage_result_market_round_id": None,
         "current_standings": [],
         "is_live_stage": False,
         "is_upcoming_stage": False,
@@ -671,11 +742,24 @@ def index():
             projected_final_scores = projected_final_scores_future.result()
             stage_score_matrix = stage_score_matrix_future.result()
             score_trend_chart = build_score_trend_chart(stage_score_matrix)
+            stage_result_snapshots = build_stage_result_snapshots(stage_score_matrix)
             current_standings = current_standings_future.result()
             merge_current_standings_into_projected_final_scores(
                 projected_final_scores,
                 current_standings,
             )
+            selected_stage_result_market_round_id = None
+            if selected_round:
+                selected_stage_result_market_round_id = next(
+                    (
+                        snapshot["market_round_id"]
+                        for snapshot in stage_result_snapshots
+                        if snapshot["market_round_id"] == int(selected_round.get("MarketRoundId") or 0)
+                    ),
+                    None,
+                )
+            if selected_stage_result_market_round_id is None and stage_result_snapshots:
+                selected_stage_result_market_round_id = stage_result_snapshots[-1]["market_round_id"]
             view_tabs = build_view_tabs(
                 show_stage_lineups=show_stage_lineups,
                 is_upcoming_stage=is_upcoming_stage,
@@ -707,6 +791,8 @@ def index():
                 "projected_final_scores": projected_final_scores,
                 "stage_score_matrix": stage_score_matrix,
                 "score_trend_chart": score_trend_chart,
+                "stage_result_snapshots": stage_result_snapshots,
+                "selected_stage_result_market_round_id": selected_stage_result_market_round_id,
                 "current_standings": current_standings,
                 "is_live_stage": is_live_stage,
                 "is_upcoming_stage": is_upcoming_stage,
