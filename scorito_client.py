@@ -65,6 +65,50 @@ class ScoritoClient:
     redirect_uri = "https://www.scorito.com/signincallback"
     request_timeout_seconds = 30
     token_safety_margin_seconds = 60
+    config_required_keys = (
+        "cyclingApi",
+        "leagueApi",
+        "indexQueryApi",
+        "rankingApi",
+        "identityServer",
+    )
+    default_config_fallback = {
+        "cyclingApi": "https://cycling.scorito.com",
+        "leagueApi": "https://league.scorito.com",
+        "indexQueryApi": "https://index-query.scorito.com",
+        "rankingApi": "https://ranking.scorito.com",
+        "identityServer": {
+            "authority": "https://idsrv.scorito.com",
+            "clientId": "Scorito.Website.Client",
+            "redirectUriWeb": "https://www.scorito.com/signincallback",
+            "postLogoutRedirectUriWeb": "https://www.scorito.com/signoutcallback",
+            "silentRedirectUriWeb": "https://www.scorito.com/silent-renew.html",
+            "scopes": [
+                "Scorito.Games.Cycling.API.Read",
+                "Scorito.Games.Cycling.API.Write",
+                "Scorito.Games.Motorsports.API.Read",
+                "Scorito.Games.Motorsports.API.Write",
+                "Scorito.Games.Football.API.Read",
+                "Scorito.Games.Football.API.Write",
+                "Scorito.Games.Cycling.API.Read",
+                "Scorito.Games.Cycling.API.Write",
+                "Scorito.Games.Tennis.API.Read",
+                "Scorito.Games.Tennis.API.Write",
+                "Scorito.Games.Darts.API.Read",
+                "Scorito.Games.Darts.API.Write",
+                "Scorito.Platform.API.Read",
+                "Scorito.Platform.API.Write",
+                "User.API",
+                "Scorito.Ranking.API.Read",
+                "Scorito.Score.API.Read",
+                "Scorito.Score.API.Write",
+                "openid",
+                "profile",
+                "email",
+                "roles",
+            ],
+        },
+    }
     stage_result_point_types = {1, 2, 3, 4}
     classification_team_point_types = {101, 102, 103, 104, 201, 202, 203, 204}
     captain_factor_point_types = {1, 3}
@@ -205,6 +249,15 @@ class ScoritoClient:
             ],
         )
 
+    def get_subleague_detail(self, subleague_id: int) -> dict:
+        return self._cached_value(
+            ("subleague_detail", subleague_id),
+            ttl_seconds=3600,
+            loader=lambda: self._api_get(
+                f"{self._config['leagueApi']}/subleague/v1.0/subleague/{subleague_id}"
+            ),
+        )
+
     def get_stage_selection(self, market_round_id: int, user_id: int) -> dict:
         return self._cached_value(
             ("stage_selection", market_round_id, user_id),
@@ -248,6 +301,48 @@ class ScoritoClient:
             ttl_seconds=300,
             loader=lambda: self._api_get(
                 f"{self._config['cyclingApi']}/cycling/v2.0/classificationresult/{market_id}"
+            ),
+        )
+
+    def get_user_market_percentages(self, user_id: int) -> list[dict]:
+        return self._cached_value(
+            ("user_market_percentages", user_id),
+            ttl_seconds=1800,
+            loader=lambda: self._api_get(
+                f"{self._config['indexQueryApi']}/v1.0/usermarketpercentage/{user_id}"
+            ),
+        )
+
+    def get_user_market_percentage(self, user_id: int, market_id: int) -> float | None:
+        for item in self.get_user_market_percentages(user_id):
+            if int(item.get("marketId") or 0) == market_id:
+                percentage = item.get("percentage")
+                return float(percentage) if percentage is not None else None
+        return None
+
+    def get_total_user_score(self, market_id: int, user_id: int) -> int:
+        return self._cached_value(
+            ("total_user_score", market_id, user_id),
+            ttl_seconds=1800,
+            loader=lambda: int(
+                (
+                    self._api_get(
+                        self._ranking_api_url_for_user(
+                            user_id,
+                            f"scoreblock/totaluserscore/{market_id}/{user_id}",
+                        )
+                    )
+                ).get("Points")
+                or 0
+            ),
+        )
+
+    def get_total_max_average_score(self, market_id: int) -> dict:
+        return self._cached_value(
+            ("total_max_average_score", market_id),
+            ttl_seconds=1800,
+            loader=lambda: self._api_get(
+                f"{self._config['rankingApi']}/ranking/v2.0/scoreblock/totalmaxaveragescores/{market_id}"
             ),
         )
 
@@ -318,6 +413,68 @@ class ScoritoClient:
             )
 
         return panels
+
+    def build_archive_standings(
+        self,
+        *,
+        market_id: int,
+        subleague_id: int,
+    ) -> list[dict]:
+        return self._cached_value(
+            ("archive_standings", market_id, subleague_id),
+            ttl_seconds=1800,
+            loader=lambda: self._build_archive_standings_uncached(
+                market_id=market_id,
+                subleague_id=subleague_id,
+            ),
+        )
+
+    def _build_archive_standings_uncached(
+        self,
+        *,
+        market_id: int,
+        subleague_id: int,
+    ) -> list[dict]:
+        participants = self.get_subleague_participants(subleague_id)
+        if not participants:
+            return []
+
+        access_token = self._ensure_access_token()
+        worker_count = max(1, min(8, len(participants)))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(
+                    self._fetch_archive_standing_for_participant,
+                    participant,
+                    market_id,
+                    access_token,
+                ): participant
+                for participant in participants
+            }
+
+            standings: list[dict] = []
+            for future in concurrent.futures.as_completed(futures):
+                standings.append(future.result())
+
+        standings.sort(
+            key=lambda item: (
+                -int(item.get("total_points") or 0),
+                -(item.get("market_percentage") or -1),
+                item["participant"].get("Username", "").lower(),
+                item["participant"].get("FullName", "").lower(),
+            )
+        )
+
+        last_points: int | None = None
+        current_rank = 0
+        for position, item in enumerate(standings, start=1):
+            total_points = int(item.get("total_points") or 0)
+            if total_points != last_points:
+                current_rank = position
+                last_points = total_points
+            item["rank"] = current_rank
+
+        return standings
 
     def build_lineups(
         self,
@@ -410,14 +567,16 @@ class ScoritoClient:
         market_id: int,
         points_market_round_id: int,
         limit: int | None = None,
+        points_mode: str = "classification_team",
     ) -> list[RiderSummary]:
         return self._cached_value(
-            ("recommended_riders", market_id, points_market_round_id, limit),
+            ("recommended_riders", market_id, points_market_round_id, limit, points_mode),
             ttl_seconds=180,
             loader=lambda: self._build_recommended_riders_uncached(
                 market_id=market_id,
                 points_market_round_id=points_market_round_id,
                 limit=limit,
+                points_mode=points_mode,
             ),
         )
 
@@ -427,6 +586,7 @@ class ScoritoClient:
         market_id: int,
         points_market_round_id: int,
         limit: int | None = None,
+        points_mode: str = "classification_team",
     ) -> list[RiderSummary]:
         rider_map = self.get_rider_map(market_id)
         team_map = self.get_team_map()
@@ -443,11 +603,86 @@ class ScoritoClient:
                     captain_id=0,
                     points_collection=points_by_rider.get(rider_id, []),
                     captain_factor=1,
-                    points_mode="classification_team",
+                    points_mode=points_mode,
                 )
             )
 
         riders = [rider for rider in riders if rider.display_base_points > 0]
+        riders.sort(
+            key=lambda rider: (
+                -rider.display_base_points,
+                rider.name_short.lower(),
+            )
+        )
+        if limit is None:
+            return riders
+        return riders[:limit]
+
+    def build_total_rider_scores(
+        self,
+        *,
+        market_id: int,
+        limit: int | None = None,
+        points_mode: str = "all",
+    ) -> list[RiderSummary]:
+        return self._cached_value(
+            ("total_rider_scores", market_id, limit, points_mode),
+            ttl_seconds=1800,
+            loader=lambda: self._build_total_rider_scores_uncached(
+                market_id=market_id,
+                limit=limit,
+                points_mode=points_mode,
+            ),
+        )
+
+    def _build_total_rider_scores_uncached(
+        self,
+        *,
+        market_id: int,
+        limit: int | None = None,
+        points_mode: str = "all",
+    ) -> list[RiderSummary]:
+        rider_map = self.get_rider_map(market_id)
+        team_map = self.get_team_map()
+        totals_by_rider: dict[int, int] = {}
+
+        for points_by_rider in self.get_market_round_points(market_id).values():
+            for rider_id, points_collection in points_by_rider.items():
+                totals_by_rider[rider_id] = totals_by_rider.get(rider_id, 0) + self._calculate_points(
+                    points_collection,
+                    include_types=self._display_point_types(points_mode),
+                )
+
+        riders: list[RiderSummary] = []
+        for rider_id, total_points in totals_by_rider.items():
+            if total_points <= 0:
+                continue
+
+            rider = rider_map.get(rider_id, {})
+            team_id = int(rider.get("TeamId") or 0)
+            team = team_map.get(team_id, {})
+            riders.append(
+                RiderSummary(
+                    rider_id=rider_id,
+                    name_short=rider.get("NameShort") or f"Rider {rider_id}",
+                    first_name=rider.get("FirstName", ""),
+                    last_name=rider.get("LastName", ""),
+                    initials=self._rider_initials(
+                        rider.get("FirstName", ""),
+                        rider.get("LastName", ""),
+                        rider.get("NameShort", ""),
+                    ),
+                    team_id=team_id,
+                    team_name=team.get("Name", ""),
+                    team_abbreviation=team.get("Abbreviation", ""),
+                    team_image_url=team.get("ImageUrl", ""),
+                    jersey_url=self._team_jersey_url(team_id),
+                    is_captain=False,
+                    display_points=total_points,
+                    display_base_points=total_points,
+                )
+            )
+
         riders.sort(
             key=lambda rider: (
                 -rider.display_base_points,
@@ -1055,8 +1290,8 @@ class ScoritoClient:
         now = time.time()
         with self._cache_lock:
             cached_entry = self._cache.get(key)
-            if cached_entry and cached_entry[0] > now:
-                return copy.deepcopy(cached_entry[1])
+        if cached_entry and cached_entry[0] > now:
+            return copy.deepcopy(cached_entry[1])
 
         value = loader()
         expires_at = time.time() + ttl_seconds
@@ -1074,6 +1309,21 @@ class ScoritoClient:
             ):
                 return self._access_token
         return self._ensure_access_token()
+
+    def _fetch_archive_standing_for_participant(
+        self,
+        participant: dict,
+        market_id: int,
+        access_token: str,
+    ) -> dict:
+        user_id = int(participant["UserId"])
+        self._ensure_access_token_from_cached(access_token)
+        return {
+            "participant": participant,
+            "total_points": self.get_total_user_score(market_id, user_id),
+            "market_percentage": self.get_user_market_percentage(user_id, market_id),
+            "is_current_user": user_id == self._current_user_id,
+        }
 
     def _fetch_subleague_standing_for_participant(
         self,
@@ -1301,6 +1551,14 @@ class ScoritoClient:
         rider = rider or {}
         return rider.get("NameShort") or f"Rider {rider_id}"
 
+    def _ranking_api_url_for_user(self, user_id: int, path: str) -> str:
+        shard = f"{str(user_id)[-1]}/" if user_id > 0 else ""
+        normalized_path = path.strip("/")
+        return (
+            f"{self._config['rankingApi'].rstrip('/')}/"
+            f"{shard}ranking/v2.0/{normalized_path}"
+        )
+
     @staticmethod
     def _tooltip_lines(lines: list[str], *, empty_message: str) -> list[str]:
         return lines if lines else [empty_message]
@@ -1405,7 +1663,13 @@ class ScoritoClient:
         authorize_url = f"{identity['authority'].rstrip('/')}/connect/authorize?{authorize_query}"
 
         login_response_html, login_url = self._open_text(
-            self._request(authorize_url),
+            self._request(
+                authorize_url,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Referer": "https://www.scorito.com/",
+                },
+            ),
             opener=opener,
         )
 
@@ -1464,8 +1728,10 @@ class ScoritoClient:
                 f"{identity['authority'].rstrip('/')}/connect/token",
                 data=token_body,
                 headers={
-                    "Accept": "application/json",
+                    "Accept": "application/json, text/plain, */*",
                     "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": "https://www.scorito.com",
+                    "Referer": "https://www.scorito.com/",
                 },
             ),
             opener=opener,
@@ -1485,8 +1751,10 @@ class ScoritoClient:
                 self._request(
                     url,
                     headers={
-                        "Accept": "application/json",
+                        "Accept": "application/json, text/plain, */*",
                         "Authorization": f"Bearer {access_token}",
+                        "Origin": "https://www.scorito.com",
+                        "Referer": "https://www.scorito.com/",
                     },
                 )
             )
@@ -1500,8 +1768,10 @@ class ScoritoClient:
                     self._request(
                         url,
                         headers={
-                            "Accept": "application/json",
+                            "Accept": "application/json, text/plain, */*",
                             "Authorization": f"Bearer {fresh_token}",
+                            "Origin": "https://www.scorito.com",
+                            "Referer": "https://www.scorito.com/",
                         },
                     )
                 )
@@ -1518,9 +1788,34 @@ class ScoritoClient:
         return payload
 
     def _load_config(self) -> dict:
-        config = self._open_json(self._request(self.config_url))
-        required_keys = ["cyclingApi", "leagueApi", "identityServer"]
-        missing_keys = [key for key in required_keys if key not in config]
+        config_request = self._request(
+            self.config_url,
+            headers={
+                "Accept": "application/json,text/plain,*/*",
+                "Referer": "https://www.scorito.com/",
+            },
+        )
+        try:
+            config = self._open_json(config_request)
+        except ScoritoApiError as exc:
+            if exc.status_code in {401, 403, 404} or exc.status_code is None:
+                config = copy.deepcopy(self.default_config_fallback)
+            else:
+                raise
+
+        fallback_config = copy.deepcopy(self.default_config_fallback)
+        if not isinstance(config.get("identityServer"), dict):
+            config["identityServer"] = fallback_config["identityServer"]
+        else:
+            for key, value in fallback_config["identityServer"].items():
+                config["identityServer"].setdefault(key, copy.deepcopy(value))
+
+        for key, value in fallback_config.items():
+            if key == "identityServer":
+                continue
+            config.setdefault(key, value)
+
+        missing_keys = [key for key in self.config_required_keys if key not in config]
         if missing_keys:
             raise ScoritoApiError(
                 f"In de Scorito-config ontbreken verplichte sleutels: {', '.join(missing_keys)}"

@@ -1,15 +1,15 @@
-# Scorito Tour de France Lineups
+# Scorito Cycling Game Overview
 
-Small Flask app that logs into Scorito, opens the Tour de France market, reads your joined subleagues, and shows the daily stage lineup for every accepted member in the selected subleague.
+Small Flask app that logs into Scorito, opens a configured Scorito cycling game, and shows the stage lineup for every accepted member in the linked subleague.
 
 ## What it does
 
 - Logs in with your Scorito account through Scorito's normal web sign-in flow.
-- Loads Tour de France market `309`.
-- Reads the subleagues attached to that market.
-- Defaults to your Scorito-selected subleague.
+- Lets you switch between configured games such as Tour, Giro, and Vuelta.
+- Maps each game to a fixed `market_id` and `subleague_id`.
 - Defaults to the live stage, otherwise the next upcoming stage, otherwise the latest finished stage.
 - Shows each member's selected riders for that stage and marks the captain.
+- Shows a clear message when Scorito no longer exposes historical lineup and score data for an older completed game.
 
 ## Files
 
@@ -34,6 +34,9 @@ pip install -r requirements.txt
 ```env
 SCORITO_EMAIL=your-email@example.com
 SCORITO_PASSWORD=your-password
+SCORITO_DEFAULT_GAME_KEY=tdf-2026
+
+# Optional legacy fallback values:
 SCORITO_MARKET_ID=309
 SCORITO_DEFAULT_SUBLEAGUE_ID=
 ```

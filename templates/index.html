@@ -27,36 +27,1022 @@
         </span>
       </span>
     {%- endmacro %}
+    {% macro history_count_breakdown(value, tooltip, heading) -%}
+      {% if tooltip %}
+        <span class="hover-card hover-card--history">
+          <button
+            type="button"
+            class="history-count-hint"
+            aria-label="{{ heading }}: {{ value }}. Hover voor details."
+          >{{ value }}</button>
+          <span class="hover-card__panel hover-card__panel--history" role="tooltip">
+            <strong class="hover-card__title">{{ heading }}</strong>
+            <span class="hover-card__body">
+              {% for line in tooltip.split('\n') %}
+                <span class="hover-card__line">{{ line }}</span>
+              {% endfor %}
+            </span>
+          </span>
+        </span>
+      {% else %}
+        {{ value }}
+      {% endif %}
+    {%- endmacro %}
+    {% macro render_history_percentage(percentage) -%}
+      <span class="history-percentage">
+        <span class="history-percentage__value">{{ "%.2f"|format(percentage) }}%</span>
+        {% if percentage > 99 %}
+          <span class="history-trophy history-trophy--gold" aria-label="Gouden beker voor score boven 99 procent" title="Gouden beker voor score boven 99 procent">&#127942;</span>
+        {% elif percentage > 97 %}
+          <span class="history-trophy history-trophy--silver" aria-label="Zilveren beker voor score boven 97 procent" title="Zilveren beker voor score boven 97 procent">&#127942;</span>
+        {% elif percentage > 95 %}
+          <span class="history-trophy history-trophy--bronze" aria-label="Bronzen beker voor score boven 95 procent" title="Bronzen beker voor score boven 95 procent">&#127942;</span>
+        {% endif %}
+      </span>
+    {%- endmacro %}
+    {% macro render_history_result_table(standings, highlighted_user_id=0) -%}
+      <div class="history-result-table-wrap">
+        <table class="history-result-table">
+          <thead>
+            <tr>
+              <th>Plek</th>
+              <th>Manager</th>
+              <th>Punten</th>
+              <th>Scorito %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in standings %}
+              {% set participant = entry.participant %}
+              <tr{% if highlighted_user_id and participant.UserId == highlighted_user_id %} class="history-result-table__row--highlight"{% elif entry.is_current_user %} class="history-result-table__row--highlight"{% endif %}>
+                <td>{{ entry.rank }}</td>
+                <td>
+                  <div class="history-result-table__manager">
+                    <strong>{{ participant.Username }}</strong>
+                    {% if participant.FullName and participant.FullName != participant.Username %}
+                      <span>{{ participant.FullName }}</span>
+                    {% endif %}
+                  </div>
+                </td>
+                <td>{{ entry.total_points }}</td>
+                <td>
+                  {% if entry.market_percentage is not none %}
+                    {{ render_history_percentage(entry.market_percentage) }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {%- endmacro %}
+    {% macro render_history_score_card(result, primary_metric='percentage') -%}
+      <details class="history-score-card history-score-card--{{ result.event_id }}">
+        <summary class="history-score-card__summary">
+          <span class="history-score-card__rank">{{ result.position }}</span>
+          <div class="history-score-card__main">
+            <div class="history-score-card__title">
+              <strong>{{ result.username }}</strong>
+              <span>{{ result.game_label }} | plek {{ result.rank }}</span>
+              {% if result.game.subleague_name %}
+                <span class="history-score-card__subleague">{{ result.game.subleague_name }}</span>
+              {% endif %}
+            </div>
+            <div class="history-score-card__meta">
+              {% if primary_metric == 'points' %}
+                <span>
+                  {% if result.market_percentage is not none %}
+                    {{ render_history_percentage(result.market_percentage) }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </span>
+                <strong>{{ result.total_points }} pts</strong>
+              {% else %}
+                <span>{{ result.total_points }} pts</span>
+                <strong>
+                  {% if result.market_percentage is not none %}
+                    {{ render_history_percentage(result.market_percentage) }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </strong>
+              {% endif %}
+            </div>
+          </div>
+        </summary>
+        <div class="history-score-card__body">
+          <div class="history-result__meta">
+            <span class="pill pill--glass">{{ result.status_label }}</span>
+            <span class="pill pill--navy">{{ result.event_label }} {{ result.year }}</span>
+            <span class="pill pill--blue">{{ result.summary }}</span>
+            {% if result.game.subleague_name %}
+              <span class="pill pill--glass">{{ result.game.subleague_name }}</span>
+            {% endif %}
+            <a class="history-result__link" href="{{ url_for('index', page=result.game.page, game=result.game_key) }}">Open spel</a>
+          </div>
+          {{ render_history_result_table(result.game.standings, result.user_id) }}
+        </div>
+      </details>
+    {%- endmacro %}
+    {% macro render_history_margin_card(result, highlighted_user_id=0) -%}
+      <details class="history-score-card history-score-card--{{ result.event_id }}">
+        <summary class="history-score-card__summary">
+          <span class="history-score-card__rank">{{ result.position }}</span>
+          <div class="history-score-card__main">
+            <div class="history-score-card__title">
+              <strong>
+                {{ result.winner_username }}
+                {% if result.runner_up %}
+                  vs {{ result.runner_up_username }}
+                {% endif %}
+              </strong>
+              <span>{{ result.game_label }} | {{ result.winner_points }} - {{ result.runner_up_points }} pts</span>
+              {% if result.game.subleague_name %}
+                <span class="history-score-card__subleague">{{ result.game.subleague_name }}</span>
+              {% endif %}
+            </div>
+            <div class="history-score-card__meta">
+              <span>
+                {% if result.runner_up %}
+                  Winnaar {{ result.winner_username }} | nummer 2 {{ result.runner_up_username }}
+                {% else %}
+                  Geen runner-up beschikbaar
+                {% endif %}
+              </span>
+              <strong>+{{ result.margin_points }} pts</strong>
+            </div>
+          </div>
+        </summary>
+        <div class="history-score-card__body">
+          <div class="history-result__meta">
+            <span class="pill pill--glass">{{ result.status_label }}</span>
+            <span class="pill pill--navy">{{ result.event_label }} {{ result.year }}</span>
+            <span class="pill pill--blue">{{ result.summary }}</span>
+            {% if result.game.subleague_name %}
+              <span class="pill pill--glass">{{ result.game.subleague_name }}</span>
+            {% endif %}
+            {% if result.selected_user_entry %}
+              <span class="pill pill--yellow">
+                {{ result.selected_user_entry.participant.Username }} eindigde als {{ result.selected_user_entry.rank }}
+              </span>
+            {% endif %}
+            <a class="history-result__link" href="{{ url_for('index', page=result.game.page, game=result.game_key) }}">Open spel</a>
+          </div>
+          {{ render_history_result_table(result.game.standings, highlighted_user_id) }}
+        </div>
+      </details>
+    {%- endmacro %}
     <div class="page-shell">
-      <section class="toolbar">
-        <form class="toolbar__form" method="get">
-          {% if selected_round %}
-            <input type="hidden" name="market_round_id" value="{{ selected_round.MarketRoundId }}">
-          {% endif %}
-          {% if active_view %}
-            <input type="hidden" name="view" value="{{ active_view }}">
+      <nav class="top-tabs" aria-label="Hoofdweergave">
+        <a
+          class="top-tabs__button{% if current_page == 'live' %} top-tabs__button--active{% endif %}"
+          href="{{ url_for('index', page='live', game=(selected_game.key if selected_game else None), market_round_id=(selected_round.MarketRoundId if selected_round else requested_market_round_id), view=(active_view or requested_view)) }}"
+        >
+          Live spel
+        </a>
+        <a
+          class="top-tabs__button{% if current_page == 'archive' %} top-tabs__button--active{% endif %}"
+          href="{{ url_for('index', page='archive', game=(selected_game.key if selected_game else None), market_round_id=(selected_round.MarketRoundId if selected_round else requested_market_round_id), view=(active_view or requested_view)) }}"
+        >
+          Historic games
+        </a>
+        <a
+          class="top-tabs__button{% if current_page == 'history' %} top-tabs__button--active{% endif %}"
+          href="{{ url_for('index', page='history', history_view=(history_view if history_view else requested_history_view), history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None), market_round_id=requested_market_round_id, view=(active_view or requested_view)) }}"
+        >
+          Historic overview
+        </a>
+      </nav>
+
+      {% if current_page == "history" %}
+        {% if error %}
+          <section class="message message--error">
+            <h2>Kon de gegevens niet laden</h2>
+            <p>{{ error }}</p>
+            <p class="message__hint">
+              Als dit een nieuwe uitrol is, maak dan een `.env`-bestand op basis van
+              `.env.example` en zet daar je Scorito-inloggegevens in.
+            </p>
+          </section>
+        {% elif overview_podiums %}
+          <section class="history-overview">
+            {% set overview_result_count = overview_podiums|length %}
+            {% set overview_result_label = "volledige uitslagen" %}
+            {% if history_view == "scores" and history_scores_view == "percentage" %}
+              {% set overview_result_count = history_high_scores|length %}
+              {% set overview_result_label = "scores met hoogste Scorito %" %}
+            {% elif history_view == "scores" and history_scores_view == "points" %}
+              {% set overview_result_count = history_top_scores_by_group.grand_tours|length + history_top_scores_by_group.klassiekerspel|length %}
+              {% set overview_result_label = "scores op totale punten" %}
+            {% elif history_view == "stats" and history_stats_view == "trophies" %}
+              {% set overview_result_count = history_trophy_rows|length %}
+              {% set overview_result_label = "managers met bekers" %}
+            {% elif history_view == "stats" %}
+              {% set overview_result_count = history_stats_rows|length %}
+              {% set overview_result_label = "managers in het statistiekoverzicht" %}
+            {% elif history_view == "headtohead" %}
+              {% set overview_result_count = history_head_to_head.common_game_count %}
+              {% set overview_result_label = "gedeelde spellen in head-to-head" %}
+            {% elif history_view == "margins" %}
+              {% set overview_result_count = history_margin_rows|length %}
+              {% set overview_result_label = "marges van winst" %}
+            {% endif %}
+            <div class="history-overview__content">
+              <div class="history-overview__eyebrow">Historisch overzicht</div>
+              <h1>
+                {% if history_view == "matrix" %}
+                  Podiums per jaar
+                {% elif history_view == "stats" and history_stats_view == "trophies" %}
+                  Bekerklassement
+                {% elif history_view == "stats" %}
+                  Statistieken
+                {% elif history_view == "headtohead" %}
+                  Head-to-head
+                {% elif history_view == "margins" %}
+                  Marge van winst
+                {% else %}
+                  Toplijsten
+                {% endif %}
+              </h1>
+              <p>
+                {% if history_view == "matrix" %}
+                  De historie staat per jaar gegroepeerd, met Klassiekerspel, Giro, TDF en Vuelta als vaste kolommen. Elke uitslag kan openklappen naar de volledige stand.
+                {% elif history_view == "stats" and history_stats_view == "trophies" %}
+                  Alle gouden, zilveren en bronzen bekers op basis van Scorito % per manager, plus totaaloverzicht en beste percentage.
+                {% elif history_view == "stats" %}
+                  Het statistiekoverzicht bundelt totale score, gemiddeldes, overwinningen en podiums per manager over alle historische spellen.
+                {% elif history_view == "headtohead" %}
+                  Vergelijk twee of meer managers rechtstreeks op gedeelde spellen: onderlinge duels, totale punten, gemiddelde scores en alle uitslagen per spel.
+                {% elif history_view == "margins" %}
+                  Bekijk per spel het {{ "kleinste" if history_margin_view == "smallest" else "grootste" }} verschil tussen nummer 1 en nummer 2. Elke kaart klapt open naar de volledige eindstand van dat event.
+                {% elif history_scores_view == "points" %}
+                  De toplijsten staan nu op totale punten, met aparte blokken voor Klassiekerspel en de grote rondes samen.
+                {% else %}
+                  De toplijsten staan nu op hoogste Scorito %, over alle events heen in een lijst die je kunt openklappen naar de volledige uitslag.
+                {% endif %}
+              </p>
+              <div class="history-overview__meta">
+                <span class="pill pill--glass">{{ history_year_rows|length }} jaren</span>
+                <span class="pill pill--glass">{{ history_event_columns|length }} events</span>
+                <span class="pill pill--glass">{{ overview_podiums|length }} spellen</span>
+                {% if history_view == "scores" %}
+                  <span class="pill pill--blue">{{ "Hoogste %" if history_scores_view == "percentage" else "Hoogste scores" }}</span>
+                {% elif history_view == "stats" %}
+                  <span class="pill pill--blue">{{ "Bekers" if history_stats_view == "trophies" else "Overzicht" }}</span>
+                {% elif history_view == "headtohead" %}
+                  <span class="pill pill--blue">{{ history_head_to_head.selected_user_count }} managers geselecteerd</span>
+                {% endif %}
+                {% if selected_history_user %}
+                  <span class="pill pill--yellow">{{ selected_history_user.username }}</span>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="history-overview__leaders">
+              <div class="history-overview-card history-overview-card--general">
+                <span class="leader-chip__label">As</span>
+                <strong>X = event</strong>
+                <span>Klassiekerspel, Giro, TDF, Vuelta</span>
+              </div>
+              <div class="history-overview-card history-overview-card--points">
+                <span class="leader-chip__label">As</span>
+                <strong>Y = jaar</strong>
+                <span>{{ history_year_rows[0].year if history_year_rows else "-" }} tot {{ history_year_rows[-1].year if history_year_rows else "-" }}</span>
+              </div>
+              <div class="history-overview-card history-overview-card--youth">
+                <span class="leader-chip__label">{{ "Managers" if history_view == "headtohead" else ("Manager" if selected_history_user else "Resulten") }}</span>
+                <strong>
+                  {% if history_view == "headtohead" %}
+                    {{ history_head_to_head.selected_user_count }}
+                  {% else %}
+                    {{ selected_history_user.game_count if selected_history_user else overview_result_count }}
+                  {% endif %}
+                </strong>
+                <span>
+                  {% if history_view == "headtohead" %}
+                    {{ overview_result_label }}
+                  {% elif selected_history_user %}
+                    {{ selected_history_user.username ~ " speelde mee in " ~ selected_history_user.game_count ~ " spellen" }}
+                  {% else %}
+                    {{ overview_result_label }}
+                  {% endif %}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          {% if history_view != "headtohead" %}
+          <section class="history-filter">
+            <div class="history-filter__header">
+              <strong>Managerfilter</strong>
+              <span>Kies snel een deelnemer om alleen diens resultaten te tonen.</span>
+            </div>
+            <div class="history-filter__chips">
+              <a
+                class="history-filter__chip{% if not selected_history_user_id %} history-filter__chip--active{% endif %}"
+                href="{{ url_for('index', page='history', history_view=history_view, history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, game=(selected_game.key if selected_game else None)) }}"
+              >
+                Iedereen
+              </a>
+              {% for user in history_users %}
+                <a
+                  class="history-filter__chip{% if selected_history_user_id and user.user_id == selected_history_user_id %} history-filter__chip--active{% endif %}"
+                  href="{{ url_for('index', page='history', history_view=history_view, history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=user.user_id, game=(selected_game.key if selected_game else None)) }}"
+                  title="{{ user.full_name if user.full_name and user.full_name != user.username else user.username }}"
+                >
+                  {{ user.username }}
+                </a>
+              {% endfor %}
+            </div>
+          </section>
+          {% else %}
+          <section class="history-filter">
+            <div class="history-filter__header">
+              <strong>Vergelijk managers</strong>
+              <span>Kies minimaal twee managers. Elke knop voegt iemand toe of haalt iemand weg uit de vergelijking.</span>
+            </div>
+            <div class="history-filter__chips">
+              <a
+                class="history-filter__chip"
+                href="{{ url_for('index', page='history', history_view='headtohead', history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, game=(selected_game.key if selected_game else None)) }}"
+              >
+                Wis selectie
+              </a>
+              {% for user in history_compare_chips %}
+                <a
+                  class="history-filter__chip{% if user.is_selected %} history-filter__chip--active{% endif %}"
+                  href="{{ url_for('index', page='history', history_view='headtohead', history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=user.next_compare_ids_param, game=(selected_game.key if selected_game else None)) }}"
+                  title="{{ user.full_name if user.full_name and user.full_name != user.username else user.username }}"
+                >
+                  {{ user.username }}
+                </a>
+              {% endfor %}
+            </div>
+          </section>
           {% endif %}
 
-          <div class="field">
-            <label for="subleague_id">Subleague</label>
-            <select id="subleague_id" name="subleague_id">
-              {% for subleague in subleagues %}
-                <option
-                  value="{{ subleague.Id }}"
-                  {% if selected_subleague and subleague.Id == selected_subleague.Id %}selected{% endif %}
-                >
-                  {{ subleague.Name }}{% if subleague.IsMainPool %} (hoofd){% endif %}
-                </option>
-              {% endfor %}
-            </select>
+          <div class="history-tabs" aria-label="Historische weergave">
+            <a
+              class="history-tabs__button{% if history_view == 'matrix' %} history-tabs__button--active{% endif %}"
+              href="{{ url_for('index', page='history', history_view='matrix', history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
+            >
+              Podiums per jaar
+            </a>
+            <a
+              class="history-tabs__button{% if history_view == 'scores' %} history-tabs__button--active{% endif %}"
+              href="{{ url_for('index', page='history', history_view='scores', history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
+            >
+              Toplijsten
+            </a>
+            <a
+              class="history-tabs__button{% if history_view == 'stats' %} history-tabs__button--active{% endif %}"
+              href="{{ url_for('index', page='history', history_view='stats', history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
+            >
+              Stats
+            </a>
+            <a
+              class="history-tabs__button{% if history_view == 'headtohead' %} history-tabs__button--active{% endif %}"
+              href="{{ url_for('index', page='history', history_view='headtohead', history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
+            >
+              Head-to-head
+            </a>
+            <a
+              class="history-tabs__button{% if history_view == 'margins' %} history-tabs__button--active{% endif %}"
+              href="{{ url_for('index', page='history', history_view='margins', history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
+            >
+              Marge van winst
+            </a>
           </div>
 
-          <button type="submit">Bijwerken</button>
-        </form>
+          {% if history_view == "matrix" %}
+            <section class="history-board">
+              <div class="history-board__scroll">
+                <table class="history-matrix">
+                  <thead>
+                    <tr>
+                      <th>Jaar</th>
+                      {% for event in history_event_columns %}
+                        <th class="history-matrix__event history-matrix__event--{{ event.id }}">{{ event.label }}</th>
+                      {% endfor %}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in history_year_rows %}
+                      <tr>
+                        <th class="history-matrix__year">{{ row.year }}</th>
+                        {% for cell in row.cells %}
+                          <td class="history-matrix__cell">
+                            {% if cell.card %}
+                              <details class="history-result history-result--{{ cell.card.event_id }}{% if cell.card.is_veerkamp_podium %} history-result--veerkamp{% endif %}{% if selected_game and cell.card.game_key == selected_game.key %} history-result--selected{% endif %}">
+                                <summary class="history-result__summary">
+                                  <div class="history-result__head">
+                                    <span class="pill pill--glass">{{ cell.card.status_label }}</span>
+                                    {% if cell.card.is_veerkamp_podium %}
+                                      <span class="pill pill--yellow history-result__special-pill">Veerkampenpodium</span>
+                                    {% endif %}
+                                    <div class="history-result__title-block">
+                                      <span class="history-result__label">{{ cell.card.label }}</span>
+                                      {% if cell.card.subleague_name %}
+                                        <span class="history-result__subleague">{{ cell.card.subleague_name }}</span>
+                                      {% endif %}
+                                    </div>
+                                  </div>
+                                  {% if selected_history_user and cell.card.selected_user_entry %}
+                                    {% set selected_entry = cell.card.selected_user_entry %}
+                                    <div class="history-result__selected-user">
+                                      <strong>{{ selected_entry.participant.Username }}</strong>
+                                      <div class="history-result__selected-user-metrics">
+                                        <span class="history-result__selected-chip history-result__selected-chip--rank">Plek {{ selected_entry.rank }}</span>
+                                        <span class="history-result__selected-chip history-result__selected-chip--points">{{ selected_entry.total_points }} pts</span>
+                                        {% if selected_entry.market_percentage is not none %}
+                                          <span class="history-result__selected-chip history-result__selected-chip--percentage">
+                                            {{ render_history_percentage(selected_entry.market_percentage) }}
+                                          </span>
+                                        {% endif %}
+                                      </div>
+                                    </div>
+                                  {% elif selected_history_user %}
+                                    <div class="history-result__selected-user history-result__selected-user--muted">
+                                      <strong>{{ selected_history_user.username }}</strong>
+                                      <span>Speelde dit spel niet mee</span>
+                                    </div>
+                                  {% elif cell.card.podium %}
+                                    <ol class="history-result__podium">
+                                      {% for entry in cell.card.podium %}
+                                        <li class="history-result__podium-row">
+                                          <span class="history-result__podium-rank">{{ entry.rank }}</span>
+                                          <div class="history-result__podium-main">
+                                            <div class="history-result__podium-top">
+                                              <strong>{{ entry.username }}</strong>
+                                              <span class="history-result__placing">P{{ entry.rank }}</span>
+                                            </div>
+                                            <div class="history-result__podium-score">
+                                              <strong>{{ entry.points }} pts</strong>
+                                              {% if entry.market_percentage is not none %}
+                                                <span>{{ render_history_percentage(entry.market_percentage) }}</span>
+                                              {% endif %}
+                                            </div>
+                                          </div>
+                                        </li>
+                                      {% endfor %}
+                                    </ol>
+                                  {% else %}
+                                    <p class="overview-card__empty">
+                                      {{ "Geen podiumgegevens beschikbaar." if not cell.card.error else "Dit spel gaf nu geen bruikbare podiumdata terug." }}
+                                    </p>
+                                  {% endif %}
+                                </summary>
+                                <div class="history-result__body">
+                                  <div class="history-result__meta">
+                                    <span class="pill pill--navy">{{ cell.card.summary }}</span>
+                                    <span class="pill pill--blue">{{ cell.card.participant_count }} deelnemers</span>
+                                    {% if cell.card.subleague_name %}
+                                      <span class="pill pill--glass">{{ cell.card.subleague_name }}</span>
+                                    {% endif %}
+                                    <a class="history-result__link" href="{{ url_for('index', page=cell.card.page, game=cell.card.game_key) }}">Open spel</a>
+                                  </div>
+                                  {{ render_history_result_table(cell.card.standings) }}
+                                </div>
+                              </details>
+                            {% else %}
+                              <div class="history-empty-cell">Geen spel</div>
+                            {% endif %}
+                          </td>
+                        {% endfor %}
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          {% elif history_view == "scores" %}
+            <div class="history-tabs history-tabs--subtabs" aria-label="Toplijsten">
+              <a
+                class="history-tabs__button{% if history_scores_view == 'percentage' %} history-tabs__button--active{% endif %}"
+                href="{{ url_for('index', page='history', history_view='scores', history_scores_view='percentage', history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
+              >
+                Hoogste %
+              </a>
+              <a
+                class="history-tabs__button{% if history_scores_view == 'points' %} history-tabs__button--active{% endif %}"
+                href="{{ url_for('index', page='history', history_view='scores', history_scores_view='points', history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
+              >
+                Hoogste scores
+              </a>
+            </div>
 
-        {% if stage_button_rounds or view_tabs %}
+            <section class="history-scores-section">
+              {% if history_scores_view == "points" %}
+                <div class="history-score-panels">
+                  <section class="history-score-panel">
+                    <div class="history-score-panel__header">
+                      <h2>Grand Tours</h2>
+                      <span>{{ history_top_scores_by_group.grand_tours|length }} resultaten</span>
+                    </div>
+                    <div class="history-score-list">
+                      {% for result in history_top_scores_by_group.grand_tours %}
+                        {{ render_history_score_card(result, 'points') }}
+                      {% else %}
+                        <p class="overview-card__empty">Geen Grand Tour-resultaten gevonden.</p>
+                      {% endfor %}
+                    </div>
+                  </section>
+
+                  <section class="history-score-panel">
+                    <div class="history-score-panel__header">
+                      <h2>Klassiekerspel</h2>
+                      <span>{{ history_top_scores_by_group.klassiekerspel|length }} resultaten</span>
+                    </div>
+                    <div class="history-score-list">
+                      {% for result in history_top_scores_by_group.klassiekerspel %}
+                        {{ render_history_score_card(result, 'points') }}
+                      {% else %}
+                        <p class="overview-card__empty">Geen Klassiekerspel-resultaten gevonden.</p>
+                      {% endfor %}
+                    </div>
+                  </section>
+                </div>
+              {% else %}
+                <section class="history-score-panel">
+                  <div class="history-score-panel__header">
+                    <h2>Hoogste Scorito %</h2>
+                    <span>{{ selected_history_user.username if selected_history_user else "Alle managers" }}</span>
+                  </div>
+                <div class="history-score-list">
+                  {% for result in history_high_scores %}
+                      {{ render_history_score_card(result, 'percentage') }}
+                    {% else %}
+                      <p class="overview-card__empty">Geen resultaten met Scorito % gevonden.</p>
+                    {% endfor %}
+                  </div>
+                </section>
+              {% endif %}
+            </section>
+          {% elif history_view == "stats" %}
+            <div class="history-tabs history-tabs--subtabs" aria-label="Statistieken">
+              <a
+                class="history-tabs__button{% if history_stats_view == 'overview' %} history-tabs__button--active{% endif %}"
+                href="{{ url_for('index', page='history', history_view='stats', history_scores_view=history_scores_view, history_stats_view='overview', history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
+              >
+                Overzicht
+              </a>
+              <a
+                class="history-tabs__button{% if history_stats_view == 'trophies' %} history-tabs__button--active{% endif %}"
+                href="{{ url_for('index', page='history', history_view='stats', history_scores_view=history_scores_view, history_stats_view='trophies', history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
+              >
+                Bekers
+              </a>
+            </div>
+
+            <section class="history-scores-section">
+              <section class="history-score-panel">
+                <div class="history-score-panel__header">
+                  <h2>{{ "Bekerklassement" if history_stats_view == "trophies" else "Statistiekoverzicht" }}</h2>
+                  <span>{{ selected_history_user.username if selected_history_user else "Alle managers" }}</span>
+                </div>
+                <div class="history-result-table-wrap">
+                  <table class="history-result-table history-result-table--compact{% if history_stats_view != 'trophies' %} js-history-stats-table{% endif %}">
+                    {% if history_stats_view == "trophies" %}
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Manager</th>
+                          <th>Goud</th>
+                          <th>Zilver</th>
+                          <th>Brons</th>
+                          <th>Totaal</th>
+                          <th>Beste %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in history_trophy_rows %}
+                          <tr{% if selected_history_user_id and row.user_id == selected_history_user_id %} class="history-result-table__row--highlight"{% endif %}>
+                            <td>{{ row.position }}</td>
+                            <td>
+                              <div class="history-result-table__manager">
+                                <strong class="history-result-table__manager-name">
+                                  <span>{{ row.username }}</span>
+                                  <span class="history-trophy-stack" aria-label="Bekers van {{ row.username }}">
+                                    {% for _ in range(row.gold_trophies) %}
+                                      <span class="history-trophy history-trophy--gold history-trophy--mini" aria-hidden="true">&#127942;</span>
+                                    {% endfor %}
+                                    {% for _ in range(row.silver_trophies) %}
+                                      <span class="history-trophy history-trophy--silver history-trophy--mini" aria-hidden="true">&#127942;</span>
+                                    {% endfor %}
+                                    {% for _ in range(row.bronze_trophies) %}
+                                      <span class="history-trophy history-trophy--bronze history-trophy--mini" aria-hidden="true">&#127942;</span>
+                                    {% endfor %}
+                                  </span>
+                                </strong>
+                                <span>{{ row.game_count }} spellen | {{ row.wins }} eindzeges</span>
+                              </div>
+                            </td>
+                            <td>{{ history_count_breakdown(row.gold_trophies, row.gold_trophies_tooltip, "Gouden bekers") }}</td>
+                            <td>{{ history_count_breakdown(row.silver_trophies, row.silver_trophies_tooltip, "Zilveren bekers") }}</td>
+                            <td>{{ history_count_breakdown(row.bronze_trophies, row.bronze_trophies_tooltip, "Bronzen bekers") }}</td>
+                            <td>{{ history_count_breakdown(row.total_trophies, row.total_trophies_tooltip, "Alle bekers") }}</td>
+                            <td>
+                              {% if row.best_market_percentage is not none %}
+                                {{ "%.2f"|format(row.best_market_percentage) }}%
+                              {% else %}
+                                -
+                              {% endif %}
+                            </td>
+                          </tr>
+                        {% else %}
+                          <tr>
+                            <td colspan="7">Geen bekerresultaten gevonden.</td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    {% else %}
+                      <thead>
+                        <tr>
+                          <th aria-sort="none">
+                            <button class="history-sort-button" type="button" data-sort-index="0" data-sort-type="number">
+                              <span>#</span>
+                              <span class="history-sort-button__indicator" aria-hidden="true"></span>
+                            </button>
+                          </th>
+                          <th aria-sort="none">
+                            <button class="history-sort-button" type="button" data-sort-index="1" data-sort-type="text">
+                              <span>Manager</span>
+                              <span class="history-sort-button__indicator" aria-hidden="true"></span>
+                            </button>
+                          </th>
+                          <th aria-sort="descending">
+                            <button class="history-sort-button history-sort-button--active" type="button" data-sort-index="2" data-sort-type="number" data-sort-default-direction="desc" data-sort-direction="desc">
+                              <span>Totaal score</span>
+                              <span class="history-sort-button__indicator" aria-hidden="true"></span>
+                            </button>
+                          </th>
+                          <th aria-sort="none">
+                            <button class="history-sort-button" type="button" data-sort-index="3" data-sort-type="number">
+                              <span>Spellen</span>
+                              <span class="history-sort-button__indicator" aria-hidden="true"></span>
+                            </button>
+                          </th>
+                          <th aria-sort="none">
+                            <button class="history-sort-button" type="button" data-sort-index="4" data-sort-type="number">
+                              <span>Gem. score</span>
+                              <span class="history-sort-button__indicator" aria-hidden="true"></span>
+                            </button>
+                          </th>
+                          <th aria-sort="none">
+                            <button class="history-sort-button" type="button" data-sort-index="5" data-sort-type="number">
+                              <span>Gem. %</span>
+                              <span class="history-sort-button__indicator" aria-hidden="true"></span>
+                            </button>
+                          </th>
+                          <th aria-sort="none">
+                            <button class="history-sort-button" type="button" data-sort-index="6" data-sort-type="number">
+                              <span>Wins</span>
+                              <span class="history-sort-button__indicator" aria-hidden="true"></span>
+                            </button>
+                          </th>
+                          {% for event in history_event_columns %}
+                            <th class="history-result-table__event-column" aria-sort="none">
+                              <button class="history-sort-button history-sort-button--icon" type="button" data-sort-index="{{ 7 + loop.index0 }}" data-sort-type="number" title="{{ event.label }} wins" aria-label="{{ event.label }} wins">
+                                <span
+                                  class="history-event-marker history-event-marker--{{ event.id }}"
+                                  aria-hidden="true"
+                                ></span>
+                                <span class="history-sort-button__indicator" aria-hidden="true"></span>
+                              </button>
+                            </th>
+                          {% endfor %}
+                          <th aria-sort="none">
+                            <button class="history-sort-button" type="button" data-sort-index="{{ 7 + history_event_columns|length }}" data-sort-type="number">
+                              <span>Podiums</span>
+                              <span class="history-sort-button__indicator" aria-hidden="true"></span>
+                            </button>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in history_stats_rows %}
+                          <tr{% if selected_history_user_id and row.user_id == selected_history_user_id %} class="history-result-table__row--highlight"{% endif %}>
+                            <td data-sort-value="{{ row.position }}">{{ row.position }}</td>
+                            <td data-sort-value="{{ row.username|lower }}">
+                              <div class="history-result-table__manager">
+                                <strong>{{ row.username }}</strong>
+                                <span>
+                                  {{ row.total_trophies }} bekers |
+                                  {% if row.best_market_percentage is not none %}
+                                    beste {{ "%.2f"|format(row.best_market_percentage) }}%
+                                  {% else %}
+                                    geen beste %
+                                  {% endif %}
+                                </span>
+                              </div>
+                            </td>
+                            <td data-sort-value="{{ row.total_points }}">{{ row.total_points }}</td>
+                            <td data-sort-value="{{ row.game_count }}">{{ row.game_count }}</td>
+                            <td data-sort-value="{{ "%.1f"|format(row.average_points) }}">{{ "%.1f"|format(row.average_points) }}</td>
+                            <td data-sort-value="{{ "%.2f"|format(row.average_market_percentage) if row.average_market_percentage is not none else -1 }}">
+                              {% if row.average_market_percentage is not none %}
+                                {{ "%.2f"|format(row.average_market_percentage) }}%
+                              {% else %}
+                                -
+                              {% endif %}
+                            </td>
+                            <td data-sort-value="{{ row.wins }}">{{ history_count_breakdown(row.wins, row.wins_tooltip, "Overwinningen") }}</td>
+                            {% for event in history_event_columns %}
+                              <td data-sort-value="{{ row.event_wins[event.id] }}">{{ history_count_breakdown(row.event_wins[event.id], row.event_wins_tooltips[event.id], event.label ~ " wins") }}</td>
+                            {% endfor %}
+                            <td data-sort-value="{{ row.podiums }}">{{ history_count_breakdown(row.podiums, row.podiums_tooltip, "Podiums") }}</td>
+                          </tr>
+                        {% else %}
+                          <tr>
+                            <td colspan="{{ 8 + history_event_columns|length }}">Geen statistieken gevonden.</td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    {% endif %}
+                  </table>
+                </div>
+              </section>
+            </section>
+          {% elif history_view == "headtohead" %}
+            <section class="history-scores-section">
+              {% if history_head_to_head.selected_user_count < 2 %}
+                <div class="history-empty-state">
+                  <h2>Kies minstens twee managers</h2>
+                  <p>Gebruik de knoppen hierboven om een head-to-head vergelijking op te bouwen.</p>
+                </div>
+              {% elif history_head_to_head.common_game_count < 1 %}
+                <div class="history-empty-state">
+                  <h2>Nog geen gedeelde spellen</h2>
+                  <p>Deze selectie heeft nog geen spel waarin minstens twee gekozen managers samen meededen.</p>
+                </div>
+              {% else %}
+                <div class="history-headtohead-leaders">
+                  <article class="history-overview-card history-overview-card--points">
+                    <span class="leader-chip__label">Meeste punten</span>
+                    <strong>{{ history_head_to_head.leaders.total_points.username if history_head_to_head.leaders.total_points else "-" }}</strong>
+                    <span>{{ history_head_to_head.leaders.total_points.total_points if history_head_to_head.leaders.total_points else 0 }} pts totaal</span>
+                  </article>
+                  <article class="history-overview-card history-overview-card--general">
+                    <span class="leader-chip__label">Beste gemiddelde</span>
+                    <strong>{{ history_head_to_head.leaders.average_points.username if history_head_to_head.leaders.average_points else "-" }}</strong>
+                    <span>{{ "%.1f"|format(history_head_to_head.leaders.average_points.average_points) if history_head_to_head.leaders.average_points else "0.0" }} pts gemiddeld</span>
+                  </article>
+                  <article class="history-overview-card history-overview-card--youth">
+                    <span class="leader-chip__label">Meeste duels gewonnen</span>
+                    <strong>{{ history_head_to_head.leaders.pairwise_wins.username if history_head_to_head.leaders.pairwise_wins else "-" }}</strong>
+                    <span>{{ history_head_to_head.leaders.pairwise_wins.pairwise_wins if history_head_to_head.leaders.pairwise_wins else 0 }} keer erboven</span>
+                  </article>
+                  <article class="history-overview-card history-overview-card--general">
+                    <span class="leader-chip__label">Beste gemiddelde %</span>
+                    <strong>{{ history_head_to_head.leaders.average_percentage.username if history_head_to_head.leaders.average_percentage else "-" }}</strong>
+                    <span>
+                      {% if history_head_to_head.leaders.average_percentage and history_head_to_head.leaders.average_percentage.average_percentage is not none %}
+                        {{ "%.2f"|format(history_head_to_head.leaders.average_percentage.average_percentage) }}%
+                      {% else %}
+                        -
+                      {% endif %}
+                    </span>
+                  </article>
+                </div>
+
+                <div class="history-headtohead-grid">
+                  <section class="history-score-panel">
+                    <div class="history-score-panel__header">
+                      <h2>Samenvatting</h2>
+                      <span>{{ history_head_to_head.common_game_count }} gedeelde spellen</span>
+                    </div>
+                    <div class="history-result-table-wrap">
+                      <table class="history-result-table history-result-table--compact">
+                        <thead>
+                          <tr>
+                            <th>Manager</th>
+                            <th>Spellen</th>
+                            <th>Wie beter</th>
+                            <th>Totaal pts</th>
+                            <th>Gem. pts</th>
+                            <th>Gem. %</th>
+                            <th>Beste score</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for row in history_head_to_head.summary_rows %}
+                            <tr>
+                              <td>
+                                <div class="history-result-table__manager">
+                                  <strong>{{ row.username }}</strong>
+                                  <span>{{ row.group_wins }} groepszeges | {{ row.pairwise_wins }} onderlinge zeges</span>
+                                </div>
+                              </td>
+                              <td>{{ row.games }}</td>
+                              <td>{{ row.pairwise_wins }}-{{ row.pairwise_losses }}{% if row.pairwise_ties %}-{{ row.pairwise_ties }}{% endif %}</td>
+                              <td>{{ row.total_points }}</td>
+                              <td>{{ "%.1f"|format(row.average_points) }}</td>
+                              <td>
+                                {% if row.average_percentage is not none %}
+                                  {{ "%.2f"|format(row.average_percentage) }}%
+                                {% else %}
+                                  -
+                                {% endif %}
+                              </td>
+                              <td>{{ row.best_points }}</td>
+                            </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+
+                  <section class="history-score-panel">
+                    <div class="history-score-panel__header">
+                      <h2>Wie verslaat wie</h2>
+                      <span>Onderlinge balans</span>
+                    </div>
+                    <div class="history-score-list">
+                      {% for pair in history_head_to_head.pair_rows %}
+                        <article class="history-pair-card">
+                          <div class="history-pair-card__top">
+                            <strong>{{ pair.user_a_username }}</strong>
+                            <span>{{ pair.user_a_wins }} - {{ pair.user_b_wins }}{% if pair.ties %} - {{ pair.ties }}{% endif %}</span>
+                            <strong>{{ pair.user_b_username }}</strong>
+                          </div>
+                          <div class="history-pair-card__meta">
+                            <span>{{ pair.games }} gedeelde spellen</span>
+                            <span>
+                              {% if pair.user_a_wins > pair.user_b_wins %}
+                                {{ pair.user_a_username }} leidt
+                              {% elif pair.user_b_wins > pair.user_a_wins %}
+                                {{ pair.user_b_username }} leidt
+                              {% else %}
+                                Gelijk op
+                              {% endif %}
+                            </span>
+                          </div>
+                        </article>
+                      {% else %}
+                        <p class="overview-card__empty">Nog geen gedeelde spellen voor deze selectie.</p>
+                      {% endfor %}
+                    </div>
+                  </section>
+                </div>
+
+                <section class="history-score-panel">
+                  <div class="history-score-panel__header">
+                    <h2>Scores per spel</h2>
+                    <span>{{ history_head_to_head.comparison_rows|length }} resultaten</span>
+                  </div>
+                  <div class="history-score-list">
+                    {% for row in history_head_to_head.comparison_rows %}
+                      <details class="history-score-card history-score-card--{{ row.event_id }}">
+                        <summary class="history-score-card__summary">
+                          <span class="history-score-card__rank">{{ row.year }}</span>
+                          <div class="history-score-card__main">
+                            <div class="history-score-card__title">
+                              <strong>{{ row.game_label }}</strong>
+                              <span>{{ row.event_label }} | {{ row.summary }}</span>
+                              {% if row.subleague_name %}
+                                <span class="history-score-card__subleague">{{ row.subleague_name }}</span>
+                              {% endif %}
+                            </div>
+                            <div class="history-score-card__meta">
+                              <span>{{ row.compare_entries|length }} managers vergeleken</span>
+                              <strong>{{ row.compare_entries[0].username }}</strong>
+                            </div>
+                          </div>
+                        </summary>
+                        <div class="history-score-card__body">
+                          <div class="history-result__meta">
+                            <span class="pill pill--glass">{{ row.status_label }}</span>
+                            <span class="pill pill--navy">{{ row.event_label }} {{ row.year }}</span>
+                            <span class="pill pill--blue">{{ row.summary }}</span>
+                            <a class="history-result__link" href="{{ url_for('index', page=row.game.page, game=row.game_key) }}">Open spel</a>
+                          </div>
+                          <div class="history-result-table-wrap">
+                            <table class="history-result-table">
+                              <thead>
+                                <tr>
+                                  <th>Plek</th>
+                                  <th>Manager</th>
+                                  <th>Punten</th>
+                                  <th>Scorito %</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {% for entry in row.compare_entries %}
+                                  <tr>
+                                    <td>{{ entry.rank }}</td>
+                                    <td>
+                                      <div class="history-result-table__manager">
+                                        <strong>{{ entry.username }}</strong>
+                                        {% if entry.full_name and entry.full_name != entry.username %}
+                                          <span>{{ entry.full_name }}</span>
+                                        {% endif %}
+                                      </div>
+                                    </td>
+                                    <td>{{ entry.total_points }}</td>
+                                    <td>
+                                      {% if entry.market_percentage is not none %}
+                                        {{ render_history_percentage(entry.market_percentage) }}
+                                      {% else %}
+                                        -
+                                      {% endif %}
+                                    </td>
+                                  </tr>
+                                {% endfor %}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </details>
+                    {% endfor %}
+                  </div>
+                </section>
+              {% endif %}
+            </section>
+          {% else %}
+            <section class="history-scores-section">
+              <section class="history-score-panel">
+                <div class="history-score-panel__header">
+                  <h2>Marge van winst</h2>
+                  <span>
+                    {{ "Kleinste verschillen" if history_margin_view == "smallest" else "Grootste verschillen" }}
+                    {% if selected_history_user %} | {{ selected_history_user.username }}{% endif %}
+                  </span>
+                  <a
+                    class="history-action-button"
+                    href="{{ url_for('index', page='history', history_view='margins', history_scores_view=history_scores_view, history_margin_view=('largest' if history_margin_view == 'smallest' else 'smallest'), history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
+                  >
+                    Sorteer op {{ "grootste" if history_margin_view == "smallest" else "kleinste" }}
+                  </a>
+                </div>
+                <div class="history-score-list">
+                  {% for result in history_margin_rows %}
+                    {{ render_history_margin_card(result, selected_history_user_id or 0) }}
+                  {% else %}
+                    <p class="overview-card__empty">Geen marges van winst gevonden.</p>
+                  {% endfor %}
+                </div>
+              </section>
+            </section>
+          {% endif %}
+        {% endif %}
+      {% else %}
+      <section class="toolbar">
+        {% set show_stage_filter = (not is_archive_game) or active_view == "stagepoints" %}
+        {% if current_page == "archive" %}
+          <div class="archive-picker">
+            <div class="archive-picker__header">
+              <div>
+                <strong>Historic games</strong>
+                <span>Kies snel een spel uit het archief.</span>
+              </div>
+            </div>
+            <div class="archive-picker__rows">
+              {% for row in archive_game_rows %}
+                <div class="archive-picker__row">
+                  <span class="archive-picker__year">{{ row.year }}</span>
+                  <div class="archive-picker__grid">
+                    {% for game in row.games %}
+                      <a
+                        class="archive-game-card archive-game-card--{{ game.event_id }}{% if selected_game and game.key == selected_game.key %} archive-game-card--active{% endif %}"
+                        href="{{ url_for('index', page='archive', game=game.key) }}"
+                      >
+                        <span class="archive-game-card__event">{{ game.event_label }}</span>
+                        <strong>{{ game.label }}</strong>
+                      </a>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% else %}
+          <form class="toolbar__form" method="get">
+            <input type="hidden" name="page" value="{{ current_page }}">
+
+            <div class="field">
+              <label for="game">Spel</label>
+              <select id="game" name="game" onchange="this.form.submit()">
+                {% for game in games %}
+                  <option
+                    value="{{ game.key }}"
+                    {% if selected_game and game.key == selected_game.key %}selected{% endif %}
+                  >
+                    {{ game.label }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <button type="submit">Open spel</button>
+          </form>
+        {% endif %}
+
+        {% if (stage_button_rounds and show_stage_filter) or view_tabs %}
           <div class="toolbar__navs">
-            {% if stage_button_rounds %}
+            {% if stage_button_rounds and show_stage_filter %}
               <div class="toolbar__nav-group">
                 <span class="toolbar__nav-label">Etappe</span>
                 <div class="stage-strip">
@@ -64,7 +1050,7 @@
                     {% set market_round = stage_button.round %}
                     <a
                       class="stage-strip__button stage-strip__button--{{ status_label(market_round.StageStatus)|lower }}{% if selected_round and market_round.MarketRoundId == selected_round.MarketRoundId %} stage-strip__button--active{% endif %}"
-                      href="{{ url_for('index', subleague_id=(selected_subleague.Id if selected_subleague else None), market_round_id=market_round.MarketRoundId, view=active_view) }}"
+                      href="{{ url_for('index', page=current_page, game=(selected_game.key if selected_game else None), market_round_id=market_round.MarketRoundId, view=active_view) }}"
                     >
                       <span class="stage-strip__meta">{{ stage_button.nav_label }}</span>
                       <strong>Etappe {{ market_round.StageOrder }}</strong>
@@ -81,7 +1067,7 @@
                   {% for view_tab in view_tabs %}
                     <a
                       class="view-strip__button{% if active_view == view_tab.id %} view-strip__button--active{% endif %}"
-                      href="{{ url_for('index', subleague_id=(selected_subleague.Id if selected_subleague else None), market_round_id=(selected_round.MarketRoundId if selected_round else None), view=view_tab.id) }}"
+                      href="{{ url_for('index', page=current_page, game=(selected_game.key if selected_game else None), market_round_id=(selected_round.MarketRoundId if selected_round else None), view=view_tab.id) }}"
                     >
                       {{ view_tab.label }}
                     </a>
@@ -103,6 +1089,130 @@
           </p>
         </section>
       {% elif selected_round %}
+        {% if is_archive_game and active_view == "standings" and archive_standings %}
+          <section class="standings-section">
+            <div class="section-heading">
+              <div>
+                <div class="section-heading__eyebrow">Historische eindstand</div>
+                <h2>Finale subleague-stand van {{ selected_game.label }}</h2>
+              </div>
+              <p>
+                Op basis van de bewaarde finale Scorito-punten per deelnemer.
+              </p>
+            </div>
+
+            <div class="standings-card standings-card--cards">
+              <table class="standings-table standings-table--cards">
+                <thead>
+                  <tr>
+                    <th>Plek</th>
+                    <th>Manager</th>
+                    <th>Eindscore</th>
+                    <th>Scorito %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for entry in archive_standings %}
+                    <tr{% if entry.is_current_user %} class="standings-table__row--you"{% endif %}>
+                      <td data-label="Plek">{{ entry.rank }}</td>
+                      <td data-label="Manager" class="standings-table__cell--manager">
+                        <div class="standings-table__name">
+                          <strong>{{ entry.participant.Username }}</strong>
+                          {% if entry.participant.FullName and entry.participant.FullName != entry.participant.Username %}
+                            <span>{{ entry.participant.FullName }}</span>
+                          {% endif %}
+                        </div>
+                      </td>
+                      <td data-label="Eindscore">{{ entry.total_points }}</td>
+                      <td data-label="Scorito %">
+                        {% if entry.market_percentage is not none %}
+                          {{ "%.2f"|format(entry.market_percentage) }}%
+                        {% else %}
+                          -
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        {% endif %}
+
+        {% if is_archive_game and active_view == "totals" and archive_total_rider_scores %}
+          <section class="recommendation-section">
+            <div class="section-heading">
+              <div>
+                <div class="section-heading__eyebrow">Historische totaalscore</div>
+                <h2>Totale Scorito-punten per renner in {{ selected_game.label }}</h2>
+              </div>
+              <p>
+                Opgeteld over het hele spel, gesorteerd van hoog naar laag.
+              </p>
+            </div>
+
+            <div class="recommendation-card">
+              <ol class="recommendation-list">
+                {% for rider in archive_total_rider_scores %}
+                  <li class="recommendation-row">
+                    <span class="recommendation-row__rank">{{ loop.index }}</span>
+                    <div class="rider-media">
+                      <span class="rider-media__avatar">{{ rider.initials }}</span>
+                      {% if rider.team_image_url %}
+                        <img class="rider-media__shirt" src="{{ rider.team_image_url }}" alt="">
+                      {% elif rider.jersey_url %}
+                        <img class="rider-media__shirt rider-media__shirt--jersey" src="{{ rider.jersey_url }}" alt="">
+                      {% endif %}
+                    </div>
+                    <div class="recommendation-row__main">
+                      <span class="recommendation-row__name">{{ rider.name_short }}</span>
+                      <span class="recommendation-row__team">{{ rider.team_abbreviation or rider.team_name }}</span>
+                    </div>
+                    <span class="recommendation-row__points">{{ rider.display_base_points }} pts</span>
+                  </li>
+                {% endfor %}
+              </ol>
+            </div>
+          </section>
+        {% endif %}
+
+        {% if is_archive_game and active_view == "stagepoints" and archive_stage_points %}
+          <section class="recommendation-section">
+            <div class="section-heading">
+              <div>
+                <div class="section-heading__eyebrow">Historische rennerpunten</div>
+                <h2>Renner punten per etappe {{ selected_round.StageOrder }}</h2>
+              </div>
+              <p>
+                Manageropstellingen ontbreken, maar Scorito bewaart voor deze afgeronde etappe nog wel de punten per renner.
+              </p>
+            </div>
+
+            <div class="recommendation-card">
+              <ol class="recommendation-list">
+                {% for rider in archive_stage_points %}
+                  <li class="recommendation-row">
+                    <span class="recommendation-row__rank">{{ loop.index }}</span>
+                    <div class="rider-media">
+                      <span class="rider-media__avatar">{{ rider.initials }}</span>
+                      {% if rider.team_image_url %}
+                        <img class="rider-media__shirt" src="{{ rider.team_image_url }}" alt="">
+                      {% elif rider.jersey_url %}
+                        <img class="rider-media__shirt rider-media__shirt--jersey" src="{{ rider.jersey_url }}" alt="">
+                      {% endif %}
+                    </div>
+                    <div class="recommendation-row__main">
+                      <span class="recommendation-row__name">{{ rider.name_short }}</span>
+                      <span class="recommendation-row__team">{{ rider.team_abbreviation or rider.team_name }}</span>
+                    </div>
+                    <span class="recommendation-row__points">{{ rider.display_base_points }} pts</span>
+                  </li>
+                {% endfor %}
+              </ol>
+            </div>
+          </section>
+        {% endif %}
+
         {% if active_view == "next" and is_upcoming_stage and recommended_riders %}
           <section class="recommendation-section">
             <div class="section-heading">
@@ -280,15 +1390,21 @@
           </section>
         {% endif %}
 
-        {% if active_view == "classifications" and classification_panels %}
+        {% if not is_archive_game and active_view == "classifications" and classification_panels %}
           <section class="classification-section">
             <div class="section-heading">
               <div>
-                <div class="section-heading__eyebrow">Klassementssnapshot</div>
-                <h2>Huidige trui- en klassementstand</h2>
+                <div class="section-heading__eyebrow">
+                  {{ "Historisch klassement" if is_archive_game else "Klassementssnapshot" }}
+                </div>
+                <h2>
+                  {{ "Laatste bewaarde trui- en klassementstand" if is_archive_game else "Huidige trui- en klassementstand" }}
+                </h2>
               </div>
               <p>
-                {% if classification_round %}
+                {% if is_archive_game and classification_round %}
+                  Scorito bewaart voor dit oude spel nog de stand na etappe {{ classification_round.StageOrder }}.
+                {% elif classification_round %}
                   Laatste verwerkte stand na etappe {{ classification_round.StageOrder }}.
                 {% else %}
                   Laatste stand beschikbaar vanuit Scorito.
@@ -728,7 +1844,7 @@
       {% if active_view == "stages" and stage_result_snapshots %}
         <script id="stage-result-share-payload" type="application/json">
           {{ {
-            "subleague_name": (selected_subleague.Name if selected_subleague else ""),
+            "subleague_name": (selected_game.label if selected_game else ""),
             "snapshots": stage_result_snapshots
           }|tojson }}
         </script>
@@ -1907,6 +3023,102 @@
           })();
         </script>
       {% endif %}
+      {% endif %}
+      <script>
+        (() => {
+          const table = document.querySelector(".js-history-stats-table");
+          if (!table) {
+            return;
+          }
+
+          const body = table.tBodies[0];
+          if (!body) {
+            return;
+          }
+
+          const headers = Array.from(table.querySelectorAll(".history-sort-button"));
+          const rows = Array.from(body.rows).filter((row) => row.cells.length > 1);
+          if (!headers.length || !rows.length) {
+            return;
+          }
+
+          let activeIndex = 2;
+          let activeDirection = "desc";
+
+          const getCellSortValue = (row, index, type) => {
+            const cell = row.cells[index];
+            if (!cell) {
+              return type === "number" ? Number.NEGATIVE_INFINITY : "";
+            }
+
+            const rawValue = cell.dataset.sortValue ?? cell.textContent ?? "";
+            if (type === "number") {
+              const numericValue = Number.parseFloat(String(rawValue).replace(",", "."));
+              return Number.isNaN(numericValue) ? Number.NEGATIVE_INFINITY : numericValue;
+            }
+
+            return String(rawValue).trim().toLocaleLowerCase("nl-NL");
+          };
+
+          const updateHeaderState = () => {
+            headers.forEach((button) => {
+              const parent = button.closest("th");
+              if (!parent) {
+                return;
+              }
+
+              const buttonIndex = Number(button.dataset.sortIndex || -1);
+              const isActive = buttonIndex === activeIndex;
+              button.classList.toggle("history-sort-button--active", isActive);
+              button.dataset.sortDirection = isActive ? activeDirection : "";
+              parent.setAttribute(
+                "aria-sort",
+                isActive
+                  ? (activeDirection === "asc" ? "ascending" : "descending")
+                  : "none"
+              );
+            });
+          };
+
+          const sortRows = (index, type, direction) => {
+            const sortedRows = [...rows].sort((left, right) => {
+              const leftValue = getCellSortValue(left, index, type);
+              const rightValue = getCellSortValue(right, index, type);
+
+              if (type === "number") {
+                if (leftValue !== rightValue) {
+                  return direction === "asc" ? leftValue - rightValue : rightValue - leftValue;
+                }
+              } else if (leftValue !== rightValue) {
+                return direction === "asc"
+                  ? leftValue.localeCompare(rightValue, "nl")
+                  : rightValue.localeCompare(leftValue, "nl");
+              }
+
+              const leftManager = getCellSortValue(left, 1, "text");
+              const rightManager = getCellSortValue(right, 1, "text");
+              return leftManager.localeCompare(rightManager, "nl");
+            });
+
+            sortedRows.forEach((row) => body.appendChild(row));
+          };
+
+          headers.forEach((button) => {
+            button.addEventListener("click", () => {
+              const index = Number(button.dataset.sortIndex || -1);
+              const type = button.dataset.sortType === "text" ? "text" : "number";
+              const direction = index === activeIndex && activeDirection === "desc" ? "asc" : "desc";
+
+              activeIndex = index;
+              activeDirection = direction;
+              sortRows(index, type, direction);
+              updateHeaderState();
+            });
+          });
+
+          updateHeaderState();
+        })();
+      </script>
     </div>
   </body>
 </html>
