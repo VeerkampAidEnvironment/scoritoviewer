@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import copy
 import concurrent.futures
 import math
 import os
 import threading
+import time
 from datetime import date
 from pathlib import Path
 
@@ -67,6 +69,9 @@ LOADED_ENV_PATHS = load_env_files()
 app = Flask(__name__)
 CLIENT_CACHE_LOCK = threading.Lock()
 CLIENTS_BY_CREDENTIALS: dict[tuple[str, str], ScoritoClient] = {}
+HISTORY_OVERVIEW_CACHE_LOCK = threading.Lock()
+HISTORY_OVERVIEW_CACHE: dict[str, tuple[float, dict]] = {}
+HISTORY_OVERVIEW_CACHE_TTL_SECONDS = 300
 GAME_OPTIONS: tuple[dict, ...] = (
     {
         "key": "tdf-2026",
@@ -1177,6 +1182,36 @@ def build_overview_podiums(
         if card is not None:
             ordered_cards.append(card)
     return ordered_cards
+
+
+def get_history_overview_snapshot(client: ScoritoClient) -> dict:
+    cache_key = "history_overview"
+    now = time.time()
+
+    with HISTORY_OVERVIEW_CACHE_LOCK:
+        cached_entry = HISTORY_OVERVIEW_CACHE.get(cache_key)
+        if cached_entry and now < cached_entry[0]:
+            return copy.deepcopy(cached_entry[1])
+
+    overview_podiums = build_overview_podiums(
+        client,
+        selected_game_key=None,
+        selected_game_card=None,
+    )
+    apply_history_manager_aliases(overview_podiums)
+    snapshot = {
+        "overview_podiums": overview_podiums,
+        "history_users": build_history_users(overview_podiums),
+        "history_year_rows": build_history_year_rows(overview_podiums),
+    }
+
+    with HISTORY_OVERVIEW_CACHE_LOCK:
+        HISTORY_OVERVIEW_CACHE[cache_key] = (
+            now + HISTORY_OVERVIEW_CACHE_TTL_SECONDS,
+            snapshot,
+        )
+
+    return copy.deepcopy(snapshot)
 
 
 def build_history_year_rows(overview_cards: list[dict]) -> list[dict]:
@@ -2606,13 +2641,9 @@ def index():
     try:
         client = get_client()
         if current_page == "history":
-            overview_podiums = build_overview_podiums(
-                client,
-                selected_game_key=None,
-                selected_game_card=None,
-            )
-            apply_history_manager_aliases(overview_podiums)
-            history_users = build_history_users(overview_podiums)
+            history_snapshot = get_history_overview_snapshot(client)
+            overview_podiums = history_snapshot["overview_podiums"]
+            history_users = history_snapshot["history_users"]
             valid_user_ids = {int(user["user_id"]) for user in history_users}
             selected_history_user_id = (
                 history_user_id if history_user_id in valid_user_ids else None
@@ -2627,6 +2658,7 @@ def index():
             )
             context["overview_podiums"] = overview_podiums
             context["history_users"] = history_users
+            context["history_year_rows"] = history_snapshot["history_year_rows"]
             context["selected_history_user_id"] = selected_history_user_id
             context["history_compare_ids"] = history_compare_ids
             context["history_compare_ids_param"] = serialize_history_compare_ids(history_compare_ids)
@@ -2645,52 +2677,47 @@ def index():
                 ),
                 None,
             )
-            context["history_stats_rows"] = build_history_stats_rows(
-                history_users,
-                selected_history_user_id=selected_history_user_id,
-            )
-            context["history_trophy_rows"] = build_history_trophy_rows(
-                history_users,
-                selected_history_user_id=selected_history_user_id,
-            )
-            context["history_year_rows"] = build_history_year_rows(overview_podiums)
-            context["history_high_scores"] = build_history_high_scores(
-                overview_podiums,
-                selected_history_user_id=selected_history_user_id,
-            )
-            context["history_high_scores_by_group"] = {
-                "grand_tours": build_history_high_scores(
+            if history_view == "stats":
+                if history_stats_view == "trophies":
+                    context["history_trophy_rows"] = build_history_trophy_rows(
+                        history_users,
+                        selected_history_user_id=selected_history_user_id,
+                    )
+                else:
+                    context["history_stats_rows"] = build_history_stats_rows(
+                        history_users,
+                        selected_history_user_id=selected_history_user_id,
+                    )
+            elif history_view == "scores":
+                if history_scores_view == "percentage":
+                    context["history_high_scores"] = build_history_high_scores(
+                        overview_podiums,
+                        selected_history_user_id=selected_history_user_id,
+                    )
+                else:
+                    context["history_top_scores_by_group"] = {
+                        "grand_tours": build_history_top_scores(
+                            overview_podiums,
+                            selected_history_user_id=selected_history_user_id,
+                            event_group="grand_tours",
+                        ),
+                        "klassiekerspel": build_history_top_scores(
+                            overview_podiums,
+                            selected_history_user_id=selected_history_user_id,
+                            event_group="klassiekerspel",
+                        ),
+                    }
+            elif history_view == "margins":
+                context["history_margin_rows"] = build_history_margin_rows(
                     overview_podiums,
                     selected_history_user_id=selected_history_user_id,
-                    event_group="grand_tours",
-                ),
-                "klassiekerspel": build_history_high_scores(
+                    margin_view=history_margin_view,
+                )
+            elif history_view == "headtohead":
+                context["history_head_to_head"] = build_history_head_to_head(
                     overview_podiums,
-                    selected_history_user_id=selected_history_user_id,
-                    event_group="klassiekerspel",
-                ),
-            }
-            context["history_margin_rows"] = build_history_margin_rows(
-                overview_podiums,
-                selected_history_user_id=selected_history_user_id,
-                margin_view=history_margin_view,
-            )
-            context["history_head_to_head"] = build_history_head_to_head(
-                overview_podiums,
-                compare_user_ids=history_compare_ids,
-            )
-            context["history_top_scores_by_group"] = {
-                "grand_tours": build_history_top_scores(
-                    overview_podiums,
-                    selected_history_user_id=selected_history_user_id,
-                    event_group="grand_tours",
-                ),
-                "klassiekerspel": build_history_top_scores(
-                    overview_podiums,
-                    selected_history_user_id=selected_history_user_id,
-                    event_group="klassiekerspel",
-                ),
-            }
+                    compare_user_ids=history_compare_ids,
+                )
             return render_template("index.html", **context)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
