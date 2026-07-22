@@ -100,7 +100,7 @@ RIDER_HISTORY_CACHE_TTL_SECONDS = 600
 PERSISTENT_CACHE_DIR = BASE_DIR / ".cache"
 HISTORIC_GAME_CACHE_DIR = PERSISTENT_CACHE_DIR / "historic_games"
 HISTORIC_GAME_SNAPSHOT_LOCK = threading.Lock()
-HISTORIC_GAME_SNAPSHOT_VERSION = 2
+HISTORIC_GAME_SNAPSHOT_VERSION = 5
 GAME_OPTIONS: tuple[dict, ...] = (
     {
         "key": "tdf-2026",
@@ -990,6 +990,11 @@ def classify_game_page(game: dict) -> str:
     if CURRENT_DATE <= season_end_date:
         return "live"
     return "archive"
+
+
+def supports_historic_rider_data(game: dict) -> bool:
+    event_id, _year = parse_game_identity(game)
+    return event_id in {"giro", "tdf", "vuelta"}
 
 
 def build_page_game_options(current_page: str) -> list[dict]:
@@ -2352,6 +2357,7 @@ def read_historic_game_snapshot(game: dict) -> dict | None:
 def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
     market_id = int(game["market_id"])
     subleague_id = int(game["subleague_id"])
+    include_rider_data = supports_historic_rider_data(game)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         rounds_future = executor.submit(client.get_market_rounds, market_id)
@@ -2360,18 +2366,21 @@ def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
             market_id=market_id,
             subleague_id=subleague_id,
         )
-        totals_future = executor.submit(
-            client.build_total_rider_scores,
-            market_id=market_id,
-        )
         subleague_detail_future = executor.submit(
             client.get_subleague_detail,
             subleague_id,
         )
+        totals_future = (
+            executor.submit(
+                client.build_total_rider_scores,
+                market_id=market_id,
+            )
+            if include_rider_data else None
+        )
 
         rounds = rounds_future.result()
         archive_standings = standings_future.result()
-        archive_total_rider_scores = totals_future.result()
+        archive_total_rider_scores = totals_future.result() if totals_future else []
         try:
             subleague_detail = subleague_detail_future.result()
         except Exception:
@@ -2383,13 +2392,13 @@ def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
         for rider in archive_total_rider_scores
     ]
 
+    archive_stage_points_by_round: dict[str, list[dict]] = {}
     finished_rounds = [
         round_item
         for round_item in sorted(rounds, key=lambda item: int(item.get("StageOrder") or 0))
         if int(round_item.get("StageStatus", -1)) == 2
     ]
-    archive_stage_points_by_round: dict[str, list[dict]] = {}
-    if finished_rounds:
+    if include_rider_data and finished_rounds:
         worker_count = max(1, min(4, len(finished_rounds)))
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = {
@@ -2408,31 +2417,51 @@ def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
                     for rider in future.result()
                 ]
 
-    market_enriched = client.get_market_enriched(market_id)
-    projected_final_snapshot = client.get_projected_final_scoring_snapshot(market_id)
-    _ordered_round_ids, stage_total_points_by_rider_id, captain_stage_points_by_rider_id = (
-        build_archive_stage_points_maps_by_rider_id(
-            client.get_market_round_points(market_id)
-        )
-    )
-    archive_perfect_team = build_archive_perfect_team(
-        serialized_total_rider_scores,
-        budget=int(market_enriched.get("Budget") or 0),
-        captain_factor=int(market_enriched.get("CaptainFactor") or 2),
-        stage_total_points_by_rider_id=stage_total_points_by_rider_id,
-        captain_stage_points_by_rider_id=captain_stage_points_by_rider_id,
-        final_individual_points_by_rider_id={
-            int(rider_id): int(points or 0)
-            for rider_id, points in dict(
-                projected_final_snapshot.get("rider_final_points", {})
-            ).items()
-        },
-        teammate_bonus_rules=[
-            dict(rule)
-            for rule in projected_final_snapshot.get("teammate_bonus_rules", [])
-        ],
-        team_size=PERFECT_TEAM_SIZE,
-    )
+    archive_perfect_team = {
+        "rows": [],
+        "rider_ids": set(),
+        "budget": 0,
+        "budget_used": 0,
+        "budget_remaining": 0,
+        "team_size": PERFECT_TEAM_SIZE,
+        "base_points": 0,
+        "captain_bonus_points": 0,
+        "final_individual_points": 0,
+        "teammate_bonus_points": 0,
+        "total_points": 0,
+        "points_per_million": 0.0,
+        "captain_stage_count": 0,
+        "note": "Perfect team is niet beschikbaar voor dit historische spel.",
+    }
+    if include_rider_data:
+        try:
+            market_enriched = client.get_market_enriched(market_id)
+            projected_final_snapshot = client.get_projected_final_scoring_snapshot(market_id)
+            _ordered_round_ids, stage_total_points_by_rider_id, captain_stage_points_by_rider_id = (
+                build_archive_stage_points_maps_by_rider_id(
+                    client.get_market_round_points(market_id)
+                )
+            )
+            archive_perfect_team = build_archive_perfect_team(
+                serialized_total_rider_scores,
+                budget=int(market_enriched.get("Budget") or 0),
+                captain_factor=int(market_enriched.get("CaptainFactor") or 2),
+                stage_total_points_by_rider_id=stage_total_points_by_rider_id,
+                captain_stage_points_by_rider_id=captain_stage_points_by_rider_id,
+                final_individual_points_by_rider_id={
+                    int(rider_id): int(points or 0)
+                    for rider_id, points in dict(
+                        projected_final_snapshot.get("rider_final_points", {})
+                    ).items()
+                },
+                teammate_bonus_rules=[
+                    dict(rule)
+                    for rule in projected_final_snapshot.get("teammate_bonus_rules", [])
+                ],
+                team_size=PERFECT_TEAM_SIZE,
+            )
+        except Exception:
+            pass
 
     return {
         "version": HISTORIC_GAME_SNAPSHOT_VERSION,
@@ -2504,13 +2533,13 @@ def build_archive_perfect_team_candidate_rows(
             rider,
             stage_total_points=tuple(
                 stage_total_points_by_rider_id.get(
-                    int(getattr(rider, "rider_id", 0) or 0),
+                    int(rider_field_value(rider, "rider_id", 0) or 0),
                     (),
                 )
             ),
             captain_stage_points=tuple(
                 captain_stage_points_by_rider_id.get(
-                    int(getattr(rider, "rider_id", 0) or 0),
+                    int(rider_field_value(rider, "rider_id", 0) or 0),
                     (),
                 )
             ),
@@ -2600,104 +2629,52 @@ def solve_archive_perfect_team_base(
 
     target_team_size = min(team_size, len(candidate_rows))
     prices = [int(row["price"]) for row in candidate_rows]
-    budget_step = choose_perfect_team_budget_step(budget, prices)
-    budget_units = budget // budget_step if budget_step > 0 else 0
+    # Keep an immutable backpointer chain for each state so reconstruction
+    # cannot drift into duplicate riders after intermediate states are updated.
+    node_chain: list[tuple[int | None, int]] = []
+    states: list[dict[int, tuple[int, int | None]]] = [
+        dict() for _ in range(target_team_size + 1)
+    ]
+    states[0][0] = (0, None)
 
-    use_sparse_solver = budget_step <= 0 or budget_units > 5_000
-    if use_sparse_solver:
-        states: list[dict[int, tuple[int, int, int]]] = [dict() for _ in range(target_team_size + 1)]
-        parents: list[dict[tuple[int, int], tuple[int, int, int]]] = [dict() for _ in range(target_team_size + 1)]
-        states[0][0] = (0, -1, -1)
-        for index, rider in enumerate(candidate_rows):
-            price = int(rider["price"])
-            points = int(rider["points"])
-            for count in range(target_team_size, 0, -1):
-                previous_items = list(states[count - 1].items())
-                for spent_budget, (previous_points, _prev_spent, _prev_index) in previous_items:
-                    new_budget = spent_budget + price
-                    if new_budget > budget:
-                        continue
+    for index, rider in enumerate(candidate_rows):
+        price = int(rider["price"])
+        points = int(rider["points"])
+        for count in range(target_team_size, 0, -1):
+            previous_items = list(states[count - 1].items())
+            for spent_budget, (previous_points, previous_node_id) in previous_items:
+                new_budget = spent_budget + price
+                if new_budget > budget:
+                    continue
 
-                    candidate_points = previous_points + points
-                    current_state = states[count].get(new_budget)
-                    if current_state is not None and candidate_points <= current_state[0]:
-                        continue
+                candidate_points = previous_points + points
+                current_state = states[count].get(new_budget)
+                if current_state is not None and candidate_points <= current_state[0]:
+                    continue
 
-                    states[count][new_budget] = (candidate_points, spent_budget, index)
-                    parents[count][(new_budget, index)] = (spent_budget, count - 1, index)
+                node_id = len(node_chain)
+                node_chain.append((previous_node_id, index))
+                states[count][new_budget] = (candidate_points, node_id)
 
-        best_count = target_team_size
-        while best_count > 0 and not states[best_count]:
-            best_count -= 1
-        if best_count == 0:
-            return None
+    best_count = target_team_size
+    while best_count > 0 and not states[best_count]:
+        best_count -= 1
+    if best_count == 0:
+        return None
 
-        best_budget = max(
-            states[best_count],
-            key=lambda spent_budget: (
-                states[best_count][spent_budget][0],
-                -spent_budget,
-            ),
-        )
-        selected_rows: list[dict] = []
-        count = best_count
-        current_budget = best_budget
-        while count > 0:
-            previous_points, previous_budget, rider_index = states[count][current_budget]
-            if rider_index < 0:
-                break
-            selected_rows.append(candidate_rows[rider_index])
-            current_budget = previous_budget
-            count -= 1
-    else:
-        dp = [[-1] * (budget_units + 1) for _ in range(target_team_size + 1)]
-        parents: list[list[tuple[int, int] | None]] = [
-            [None] * (budget_units + 1)
-            for _ in range(target_team_size + 1)
-        ]
-        dp[0][0] = 0
-
-        for index, rider in enumerate(candidate_rows):
-            price_units = int(rider["price"]) // budget_step
-            points = int(rider["points"])
-            if price_units <= 0 or price_units > budget_units:
-                continue
-
-            for count in range(target_team_size, 0, -1):
-                for spent_units in range(budget_units, price_units - 1, -1):
-                    previous_points = dp[count - 1][spent_units - price_units]
-                    if previous_points < 0:
-                        continue
-
-                    candidate_points = previous_points + points
-                    if candidate_points > dp[count][spent_units]:
-                        dp[count][spent_units] = candidate_points
-                        parents[count][spent_units] = (spent_units - price_units, index)
-
-        best_count = target_team_size
-        while best_count > 0 and max(dp[best_count]) < 0:
-            best_count -= 1
-        if best_count == 0:
-            return None
-
-        best_spent_units = max(
-            range(budget_units + 1),
-            key=lambda spent_units: (
-                dp[best_count][spent_units],
-                -spent_units,
-            ),
-        )
-        selected_rows = []
-        count = best_count
-        spent_units = best_spent_units
-        while count > 0:
-            parent = parents[count][spent_units]
-            if parent is None:
-                break
-            previous_spent_units, rider_index = parent
-            selected_rows.append(candidate_rows[rider_index])
-            spent_units = previous_spent_units
-            count -= 1
+    best_budget = max(
+        states[best_count],
+        key=lambda spent_budget: (
+            states[best_count][spent_budget][0],
+            -spent_budget,
+        ),
+    )
+    selected_rows: list[dict] = []
+    _best_points, current_node_id = states[best_count][best_budget]
+    while current_node_id is not None:
+        previous_node_id, rider_index = node_chain[current_node_id]
+        selected_rows.append(candidate_rows[rider_index])
+        current_node_id = previous_node_id
 
     return {
         "rows": selected_rows,
