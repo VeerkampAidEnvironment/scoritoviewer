@@ -215,6 +215,12 @@
         >
           Historic overview
         </a>
+        <a
+          class="top-tabs__button{% if current_page == 'riders' %} top-tabs__button--active{% endif %}"
+          href="{{ url_for('index', page='riders', rider_history_view=rider_history_view, game=(selected_game.key if selected_game else None)) }}"
+        >
+          Rider history
+        </a>
       </nav>
 
       {% if current_page == "history" %}
@@ -988,6 +994,211 @@
             </section>
           {% endif %}
         {% endif %}
+      {% elif current_page == "riders" %}
+        {% set rider_game_total = rider_history_rows_by_metric.points|length %}
+        <section class="history-overview">
+          <div class="history-overview__content">
+            <div class="history-overview__eyebrow">Rider history</div>
+            <h1>
+              {% if rider_history_view == "cumulative" %}
+                Cumulatieve rennerscores
+              {% else %}
+                Hoogste renner-scores per spel
+              {% endif %}
+            </h1>
+            <p>
+              {% if rider_history_view == "cumulative" %}
+                Alle renners gerangschikt op totaal aantal punten over alle spellen samen.
+              {% else %}
+                De hoogste afzonderlijke renner-prestaties per Grand Tour, inclusief hun punten per miljoen teamwaarde.
+              {% endif %}
+            </p>
+            <div class="history-overview__meta">
+              <span class="pill pill--glass">{{ rider_game_total }} spelprestaties</span>
+              <span class="pill pill--glass">{{ rider_history_cumulative_rows|length }} renners</span>
+              <span class="pill pill--blue">{{ "Cumulatief" if rider_history_view == "cumulative" else "Per spel" }}</span>
+            </div>
+          </div>
+
+            <div class="history-overview__leaders">
+              <div class="history-overview-card history-overview-card--general">
+                <span class="leader-chip__label">Bron</span>
+              <strong>{{ "Alle spellen" if rider_history_view == "cumulative" else "Grand Tours" }}</strong>
+              <span>{{ "Grand Tours en Klassiekerspel samen" if rider_history_view == "cumulative" else "Per spelprestatie met punten/prijs" }}</span>
+              </div>
+            <div class="history-overview-card history-overview-card--points">
+              <span class="leader-chip__label">Records</span>
+              <strong>{{ rider_game_total }}</strong>
+              <span>Individuele spelprestaties</span>
+            </div>
+            <div class="history-overview-card history-overview-card--youth">
+              <span class="leader-chip__label">Renners</span>
+              <strong>{{ rider_history_cumulative_rows|length }}</strong>
+              <span>Unieke renners in het totaaloverzicht</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="history-tabs history-tabs--subtabs" aria-label="Rider history">
+          <a
+            class="history-tabs__button{% if rider_history_view == 'games' %} history-tabs__button--active{% endif %}"
+            href="{{ url_for('index', page='riders', rider_history_view='games', game=(selected_game.key if selected_game else None)) }}"
+          >
+            Hoogste scores per spel
+          </a>
+          <a
+            class="history-tabs__button{% if rider_history_view == 'cumulative' %} history-tabs__button--active{% endif %}"
+            href="{{ url_for('index', page='riders', rider_history_view='cumulative', game=(selected_game.key if selected_game else None)) }}"
+          >
+            Cumulatief
+          </a>
+        </div>
+
+        {% if rider_history_view == "cumulative" %}
+          <section class="history-scores-section">
+            <section class="history-score-panel">
+              <div class="history-score-panel__header">
+                <h2>Totaaloverzicht</h2>
+                <span>{{ rider_history_cumulative_rows|length }} renners</span>
+              </div>
+              <div class="history-result-table-wrap">
+                <table class="history-result-table history-result-table--compact">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Renner</th>
+                      <th>Totaal score</th>
+                      <th>Spellen</th>
+                      <th>Beste losse score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in rider_history_cumulative_rows %}
+                      <tr>
+                        <td>{{ row.position }}</td>
+                        <td>
+                          <div class="history-result-table__manager">
+                            <strong>{{ row.name_short }}</strong>
+                            <span>
+                              {% if row.team_name %}
+                                {{ row.team_name }} |
+                              {% endif %}
+                              beste spel: {{ row.best_game_label }}
+                            </span>
+                          </div>
+                        </td>
+                        <td>{{ row.total_points }}</td>
+                        <td>{{ row.game_count }}</td>
+                        <td>{{ row.best_score }} pts</td>
+                      </tr>
+                    {% else %}
+                      <tr>
+                        <td colspan="5">Geen rennerhistorie gevonden.</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+        {% else %}
+          <section class="history-scores-section">
+            <div class="history-score-panels">
+              <section class="history-score-panel">
+                <div class="history-score-panel__header">
+                  <h2>Op punten</h2>
+                  <span>{{ rider_history_rows_by_metric.points|length }} prestaties</span>
+                </div>
+                <div class="history-result-table-wrap">
+                  <table class="history-result-table history-result-table--compact">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Renner</th>
+                        <th>Spel</th>
+                        <th>Punten</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in rider_history_rows_by_metric.points %}
+                        <tr>
+                          <td>{{ row.position }}</td>
+                          <td>
+                            <div class="history-result-table__manager">
+                              <strong>{{ row.name_short }}</strong>
+                              <span>{{ row.team_name if row.team_name else "Team onbekend" }}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <div class="history-result-table__manager">
+                              <strong>{{ row.game_label }}</strong>
+                              <span>{{ row.event_label }} {{ row.year }}</span>
+                            </div>
+                          </td>
+                          <td>{{ row.points }} pts</td>
+                        </tr>
+                      {% else %}
+                        <tr>
+                          <td colspan="4">Geen Grand Tour-rennerscores gevonden.</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="history-score-panel">
+                <div class="history-score-panel__header">
+                  <h2>Op punten per miljoen</h2>
+                  <span>{{ rider_history_rows_by_metric.efficiency|length }} prestaties</span>
+                </div>
+                <div class="history-result-table-wrap">
+                  <table class="history-result-table history-result-table--compact">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Renner</th>
+                        <th>Spel</th>
+                        <th>Pts / mln</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in rider_history_rows_by_metric.efficiency %}
+                        <tr>
+                          <td>{{ row.position }}</td>
+                          <td>
+                            <div class="history-result-table__manager">
+                              <strong>{{ row.name_short }}</strong>
+                              <span>{{ row.team_name if row.team_name else "Team onbekend" }}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <div class="history-result-table__manager">
+                              <strong>{{ row.game_label }}</strong>
+                              <span>{{ row.event_label }} {{ row.year }}</span>
+                            </div>
+                          </td>
+                          <td>
+                            {% if row.points_per_million is not none %}
+                              {{ "%.2f"|format(row.points_per_million) }}
+                              <span class="history-inline-note">bij {{ "%.1f"|format(row.price_millions) }} mln</span>
+                            {% else %}
+                              -
+                            {% endif %}
+                          </td>
+                        </tr>
+                      {% else %}
+                        <tr>
+                          <td colspan="4">Geen Grand Tour-rennerscores gevonden.</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </section>
+        {% endif %}
       {% else %}
       <section class="toolbar">
         {% set show_stage_filter = (not is_archive_game) or active_view == "stagepoints" %}
@@ -1136,6 +1347,103 @@
                 </tbody>
               </table>
             </div>
+          </section>
+        {% endif %}
+
+        {% if is_archive_game and active_view == "perfectteam" %}
+          <section class="recommendation-section">
+            <div class="section-heading">
+              <div>
+                <div class="section-heading__eyebrow">Historische perfecte ploeg</div>
+                <h2>Beste team binnen budget voor {{ selected_game.label }}</h2>
+              </div>
+              <p>
+                Gebaseerd op de totale Scorito-punten per renner, het originele spelbudget en captainbonus.
+              </p>
+            </div>
+
+            {% if archive_perfect_team.rows %}
+              <article class="perfect-team-card">
+                <div class="archive-stat-grid perfect-team-card__stats">
+                  <div class="archive-stat">
+                    <span class="archive-stat__label">Budget</span>
+                    <strong>{{ "%.2f"|format(archive_perfect_team.budget / 1000000) }}M</strong>
+                    <span>Origineel spelbudget</span>
+                  </div>
+                  <div class="archive-stat">
+                    <span class="archive-stat__label">Totale score</span>
+                    <strong>{{ archive_perfect_team.total_points }}</strong>
+                    <span>{{ archive_perfect_team.base_points }} basis + {{ archive_perfect_team.captain_bonus_points }} captainbonus + {{ archive_perfect_team.final_individual_points + archive_perfect_team.teammate_bonus_points }} eindklassement</span>
+                  </div>
+                  <div class="archive-stat">
+                    <span class="archive-stat__label">Captainetappes</span>
+                    <strong>{{ archive_perfect_team.captain_stage_count }}</strong>
+                    <span>Beste captain per etappe binnen deze ploeg</span>
+                  </div>
+                  <div class="archive-stat">
+                    <span class="archive-stat__label">Budget over</span>
+                    <strong>{{ "%.2f"|format(archive_perfect_team.budget_remaining / 1000000) }}M</strong>
+                    <span>{{ "%.2f"|format(archive_perfect_team.points_per_million) }} pts per miljoen</span>
+                  </div>
+                </div>
+
+                {% if archive_perfect_team.note %}
+                  <p class="empty-state">{{ archive_perfect_team.note }}</p>
+                {% endif %}
+
+                <div class="recommendation-card">
+                  <ol class="recommendation-list">
+                    {% for rider in archive_perfect_team.rows %}
+                      <li class="recommendation-row recommendation-row--perfect-team{% if rider.is_captain %} recommendation-row--captain{% endif %}">
+                        <span class="recommendation-row__rank">{{ rider.rank }}</span>
+                        <div class="rider-media">
+                          <span class="rider-media__avatar">{{ rider.initials }}</span>
+                          {% if rider.team_image_url %}
+                            <img class="rider-media__shirt" src="{{ rider.team_image_url }}" alt="">
+                          {% elif rider.jersey_url %}
+                            <img class="rider-media__shirt rider-media__shirt--jersey" src="{{ rider.jersey_url }}" alt="">
+                          {% endif %}
+                        </div>
+                        <div class="recommendation-row__main">
+                          <span class="recommendation-row__name">{{ rider.name_short }}</span>
+                          <span class="recommendation-row__team">
+                            {% if true %}
+                              {{ rider.team_abbreviation or rider.team_name }}{% if rider.is_captain %} - captain in {{ rider.captain_stage_count }} etappes{% endif %}
+                            {% else %}
+                            {{ rider.team_abbreviation or rider.team_name }}{% if rider.is_captain %} · captain in {{ rider.captain_stage_count }} etappes{% endif %}
+                            {% if false and rider.is_captain %}
+                              • captain
+                            {% endif %}
+                            {% endif %}
+                          </span>
+                        </div>
+                        <div class="perfect-team-metrics">
+                          <span class="recommendation-row__points">{{ rider.contributed_points }} pts</span>
+                          <span class="perfect-team-metrics__detail">{{ rider.lineup_stage_count }} etappes opgesteld</span>
+                          {% if rider.is_captain and rider.captain_bonus_points %}
+                            <span class="perfect-team-metrics__detail">+{{ rider.captain_bonus_points }} captainbonus</span>
+                          {% endif %}
+                          {% if rider.final_individual_points %}
+                            <span class="perfect-team-metrics__detail">+{{ rider.final_individual_points }} eindklassement</span>
+                          {% endif %}
+                          {% if rider.teammate_bonus_points %}
+                            <span class="perfect-team-metrics__detail">+{{ rider.teammate_bonus_points }} ploegbonus</span>
+                          {% endif %}
+                          <span class="perfect-team-metrics__detail">{{ "%.2f"|format(rider.price_millions) }}M</span>
+                          <span class="perfect-team-metrics__detail">{{ "%.2f"|format(rider.contributed_points_per_million) }} pts/M</span>
+                        </div>
+                      </li>
+                    {% endfor %}
+                  </ol>
+                </div>
+              </article>
+            {% else %}
+              <div class="perfect-team-card">
+                <p class="empty-state">
+                  {{ archive_perfect_team.note or "Voor dit historische spel konden we geen perfecte ploeg berekenen." }}
+                </p>
+              </div>
+            {% endif %}
           </section>
         {% endif %}
 

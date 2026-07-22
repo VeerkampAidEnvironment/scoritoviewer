@@ -58,6 +58,7 @@ class RiderSummary:
     display_base_points: int = 0
     subleague_pick_count: int = 0
     subleague_pick_percentage: float = 0.0
+    price: int = 0
 
 
 class ScoritoClient:
@@ -680,6 +681,7 @@ class ScoritoClient:
                     is_captain=False,
                     display_points=total_points,
                     display_base_points=total_points,
+                    price=int(rider.get("Price") or 0),
                 )
             )
 
@@ -797,6 +799,36 @@ class ScoritoClient:
                 subleague_id=subleague_id,
             ),
         )
+
+    def get_projected_final_scoring_snapshot(self, market_id: int) -> dict:
+        return self._cached_value(
+            ("projected_final_scoring_snapshot", market_id),
+            ttl_seconds=1800,
+            loader=lambda: self._get_projected_final_scoring_snapshot_uncached(
+                market_id=market_id,
+            ),
+        )
+
+    def _get_projected_final_scoring_snapshot_uncached(self, *, market_id: int) -> dict:
+        rider_map = self.get_rider_map(market_id)
+        rider_team_ids = {
+            rider_id: int((rider or {}).get("TeamId") or 0)
+            for rider_id, rider in rider_map.items()
+        }
+        (
+            rider_final_points,
+            rider_final_breakdowns,
+            teammate_bonus_rules,
+        ) = self._build_projected_final_scoring_snapshot(
+            market_id=market_id,
+            rider_team_ids=rider_team_ids,
+        )
+        return {
+            "rider_team_ids": rider_team_ids,
+            "rider_final_points": rider_final_points,
+            "rider_final_breakdowns": rider_final_breakdowns,
+            "teammate_bonus_rules": teammate_bonus_rules,
+        }
 
     def _build_projected_final_classification_scores_uncached(
         self,
@@ -1517,6 +1549,7 @@ class ScoritoClient:
             is_captain=rider_id == captain_id,
             display_points=rider_points,
             display_base_points=base_points,
+            price=int(rider.get("Price") or 0),
         )
 
     @classmethod
