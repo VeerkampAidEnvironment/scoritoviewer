@@ -213,6 +213,15 @@ class ScoritoClient:
             ),
         )
 
+    def get_classics_market_enriched(self, market_id: int) -> dict:
+        return self._cached_value(
+            ("classics_market_enriched", market_id),
+            ttl_seconds=1800,
+            loader=lambda: self._api_get(
+                f"{self._config['cyclingApi']}/cyclingteammanager/v2.0/marketenriched/{market_id}"
+            ),
+        )
+
     def get_rider_map(self, market_id: int) -> dict[int, dict]:
         return self._cached_value(
             ("rider_map", market_id),
@@ -223,6 +232,43 @@ class ScoritoClient:
                     f"{self._config['cyclingApi']}/cyclingmanager/v1.0/eventriderenriched/{market_id}"
                 )
             },
+        )
+
+    def get_classics_rider_map(self, market_id: int) -> dict[int, dict]:
+        return self._cached_value(
+            ("classics_rider_map", market_id),
+            ttl_seconds=1800,
+            loader=lambda: {
+                int(rider["RiderId"]): rider
+                for rider in self._api_get(
+                    f"{self._config['cyclingApi']}/cyclingteammanager/v2.0/marketrider/{market_id}"
+                )
+            },
+        )
+
+    def get_classics_market_rounds(self, market_id: int) -> list[dict]:
+        def load_rounds() -> list[dict]:
+            payload = self._api_get(
+                f"{self._config['cyclingApi']}/cyclingteammanager/v2.0/race/{market_id}"
+            )
+            races = payload.get("Races", []) if isinstance(payload, dict) else []
+            return [
+                {
+                    **race,
+                    "StageOrder": index,
+                    "StageStatus": int(race.get("Status", -1)),
+                    "RoundLabel": str(race.get("TranslatedName") or f"Koers {index}"),
+                    "RoundShortLabel": str(
+                        race.get("TranslatedNameShort") or f"Koers {index}"
+                    ),
+                }
+                for index, race in enumerate(races, start=1)
+            ]
+
+        return self._cached_value(
+            ("classics_market_rounds", market_id),
+            ttl_seconds=1800,
+            loader=load_rounds,
         )
 
     def get_team_map(self) -> dict[int, dict]:
@@ -285,6 +331,16 @@ class ScoritoClient:
             ("market_round_points", market_id),
             ttl_seconds=180,
             loader=lambda: self._load_market_round_points(market_id),
+        )
+
+    def get_classics_market_round_points(
+        self,
+        market_id: int,
+    ) -> dict[int, dict[int, list[dict]]]:
+        return self._cached_value(
+            ("classics_market_round_points", market_id),
+            ttl_seconds=1800,
+            loader=lambda: self._load_classics_market_round_points(market_id),
         )
 
     def get_classifications(self, market_id: int) -> list[dict]:
@@ -682,6 +738,113 @@ class ScoritoClient:
                     display_points=total_points,
                     display_base_points=total_points,
                     price=int(rider.get("Price") or 0),
+                )
+            )
+
+        riders.sort(
+            key=lambda rider: (
+                -rider.display_base_points,
+                rider.name_short.lower(),
+            )
+        )
+        if limit is None:
+            return riders
+        return riders[:limit]
+
+    def build_classics_total_rider_scores(
+        self,
+        *,
+        market_id: int,
+        limit: int | None = None,
+    ) -> list[RiderSummary]:
+        return self._cached_value(
+            ("classics_total_rider_scores", market_id, limit),
+            ttl_seconds=1800,
+            loader=lambda: self._build_classics_total_rider_scores_uncached(
+                market_id=market_id,
+                limit=limit,
+            ),
+        )
+
+    def _build_classics_total_rider_scores_uncached(
+        self,
+        *,
+        market_id: int,
+        limit: int | None = None,
+    ) -> list[RiderSummary]:
+        rider_map = self.get_classics_rider_map(market_id)
+        team_map = self.get_team_map()
+        market_points = self._api_get(
+            f"{self._config['cyclingApi']}/cyclingteammanager/v2.0/marketpoints/{market_id}"
+        )
+
+        riders = [
+            self._to_classics_rider_summary(
+                rider=rider_map[rider_id],
+                team=team_map.get(int(rider_map[rider_id].get("TeamId") or 0)),
+                rider_id=rider_id,
+                points=int(point_row.get("Points") or 0),
+            )
+            for point_row in market_points
+            for rider_id in [int(point_row.get("RiderId") or 0)]
+            if rider_id in rider_map and int(point_row.get("Points") or 0) > 0
+        ]
+        riders.sort(
+            key=lambda rider: (
+                -rider.display_base_points,
+                rider.name_short.lower(),
+            )
+        )
+        if limit is None:
+            return riders
+        return riders[:limit]
+
+    def build_classics_race_rider_scores(
+        self,
+        *,
+        market_id: int,
+        market_round_id: int,
+        limit: int | None = None,
+    ) -> list[RiderSummary]:
+        return self._cached_value(
+            ("classics_race_rider_scores", market_id, market_round_id, limit),
+            ttl_seconds=1800,
+            loader=lambda: self._build_classics_race_rider_scores_uncached(
+                market_id=market_id,
+                market_round_id=market_round_id,
+                limit=limit,
+            ),
+        )
+
+    def _build_classics_race_rider_scores_uncached(
+        self,
+        *,
+        market_id: int,
+        market_round_id: int,
+        limit: int | None = None,
+    ) -> list[RiderSummary]:
+        rider_map = self.get_classics_rider_map(market_id)
+        team_map = self.get_team_map()
+        points_by_rider = self.get_classics_market_round_points(market_id).get(
+            market_round_id,
+            {},
+        )
+
+        riders: list[RiderSummary] = []
+        for rider_id, points_collection in points_by_rider.items():
+            rider = rider_map.get(rider_id)
+            if not rider:
+                continue
+            points = self._calculate_points(points_collection)
+            if points <= 0:
+                continue
+            team_id = int(rider.get("TeamId") or 0)
+            riders.append(
+                self._to_classics_rider_summary(
+                    rider=rider,
+                    team=team_map.get(team_id),
+                    rider_id=rider_id,
+                    points=points,
                 )
             )
 
@@ -1312,6 +1475,34 @@ class ScoritoClient:
                 points_by_round[round_id] = rider_points
         return points_by_round
 
+    def _load_classics_market_round_points(
+        self,
+        market_id: int,
+    ) -> dict[int, dict[int, list[dict]]]:
+        payload = self._api_get(
+            f"{self._config['cyclingApi']}/cyclingteammanager/v2.0/points/total/{market_id}"
+        )
+        points_by_round: dict[int, dict[int, list[dict]]] = {}
+        for round_entry in payload:
+            round_id = int(round_entry.get("MarketRoundId") or 0)
+            if round_id <= 0:
+                continue
+
+            rider_points: dict[int, list[dict]] = {}
+            for point_entry in round_entry.get("PointsCollection", []):
+                rider_id = int(point_entry.get("RiderId") or 0)
+                if rider_id <= 0:
+                    continue
+                rider_points.setdefault(rider_id, []).append(
+                    {
+                        "PointsType": int(point_entry.get("Type") or 0),
+                        "Points": int(point_entry.get("Points") or 0),
+                        "Position": int(point_entry.get("Position") or 0),
+                    }
+                )
+            points_by_round[round_id] = rider_points
+        return points_by_round
+
     def _cached_value(
         self,
         key: tuple,
@@ -1549,6 +1740,37 @@ class ScoritoClient:
             is_captain=rider_id == captain_id,
             display_points=rider_points,
             display_base_points=base_points,
+            price=int(rider.get("Price") or 0),
+        )
+
+    def _to_classics_rider_summary(
+        self,
+        *,
+        rider: dict,
+        team: dict | None,
+        rider_id: int,
+        points: int,
+    ) -> RiderSummary:
+        team = team or {}
+        team_id = int(rider.get("TeamId") or 0)
+        return RiderSummary(
+            rider_id=rider_id,
+            name_short=rider.get("NameShort") or f"Rider {rider_id}",
+            first_name=rider.get("FirstName", ""),
+            last_name=rider.get("LastName", ""),
+            initials=self._rider_initials(
+                rider.get("FirstName", ""),
+                rider.get("LastName", ""),
+                rider.get("NameShort", ""),
+            ),
+            team_id=team_id,
+            team_name=team.get("Name", ""),
+            team_abbreviation=team.get("Abbreviation", ""),
+            team_image_url=team.get("ImageUrl", ""),
+            jersey_url=self._team_jersey_url(team_id),
+            is_captain=False,
+            display_points=points,
+            display_base_points=points,
             price=int(rider.get("Price") or 0),
         )
 

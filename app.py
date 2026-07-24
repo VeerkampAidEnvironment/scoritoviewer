@@ -5,8 +5,10 @@ import concurrent.futures
 import json
 import math
 import os
+import re
 import threading
 import time
+import unicodedata
 from datetime import date
 from pathlib import Path
 
@@ -88,6 +90,57 @@ def write_json_file(path: Path, payload: dict) -> None:
     )
     temp_path.replace(path)
 
+
+PCS_RIDER_PHOTO_DATA_PATH = BASE_DIR / "static" / "data" / "pcs_rider_photos.json"
+PCS_RIDER_PHOTO_URL_PREFIX = "https://www.procyclingstats.com/images/riders/"
+PCS_RIDER_SLUG_TRANSLATION = str.maketrans(
+    {
+        "æ": "ae",
+        "Æ": "Ae",
+        "đ": "d",
+        "Đ": "D",
+        "ð": "d",
+        "Ð": "D",
+        "ł": "l",
+        "Ł": "L",
+        "ø": "o",
+        "Ø": "O",
+        "œ": "oe",
+        "Œ": "Oe",
+        "ß": "ss",
+    }
+)
+
+
+def pcs_rider_slug(first_name: str | None, last_name: str | None) -> str:
+    full_name = f"{first_name or ''} {last_name or ''}".strip()
+    translated_name = full_name.translate(PCS_RIDER_SLUG_TRANSLATION)
+    ascii_name = (
+        unicodedata.normalize("NFKD", translated_name)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
+    return re.sub(r"[^a-z0-9]+", "-", ascii_name).strip("-")
+
+
+def load_pcs_rider_photo_urls() -> dict[str, str]:
+    payload = read_json_file(PCS_RIDER_PHOTO_DATA_PATH) or {}
+    photo_rows = payload.get("photos", {})
+    if not isinstance(photo_rows, dict):
+        return {}
+
+    return {
+        str(slug): str(url)
+        for slug, url in photo_rows.items()
+        if str(slug)
+        and str(url).startswith(PCS_RIDER_PHOTO_URL_PREFIX)
+    }
+
+
+PCS_RIDER_PHOTO_URLS = load_pcs_rider_photo_urls()
+
+
 app = Flask(__name__)
 CLIENT_CACHE_LOCK = threading.Lock()
 CLIENTS_BY_CREDENTIALS: dict[tuple[str, str], ScoritoClient] = {}
@@ -97,6 +150,7 @@ HISTORY_OVERVIEW_CACHE_TTL_SECONDS = 300
 RIDER_HISTORY_CACHE_LOCK = threading.Lock()
 RIDER_HISTORY_CACHE: dict[str, tuple[float, dict]] = {}
 RIDER_HISTORY_CACHE_TTL_SECONDS = 600
+RIDER_HISTORY_DEFAULT_LIST_LIMIT = 100
 PERSISTENT_CACHE_DIR = BASE_DIR / ".cache"
 HISTORIC_GAME_CACHE_DIR = PERSISTENT_CACHE_DIR / "historic_games"
 HISTORIC_GAME_SNAPSHOT_LOCK = threading.Lock()
@@ -512,6 +566,8 @@ def choose_rider_history_view(requested_rider_history_view: str) -> str:
     normalized_view = requested_rider_history_view.strip().lower()
     if normalized_view == "cumulative":
         return "cumulative"
+    if normalized_view in {"graph", "chart"}:
+        return "graph"
     return "games"
 
 
@@ -519,6 +575,8 @@ def choose_history_view(requested_history_view: str) -> str:
     normalized_view = requested_history_view.strip().lower()
     if normalized_view in {"stats", "trophies"}:
         return "stats"
+    if normalized_view in {"graph", "chart"}:
+        return "graph"
     if normalized_view == "headtohead":
         return "headtohead"
     if normalized_view == "margins":
@@ -956,7 +1014,17 @@ def build_archive_stage_button_rounds(rounds: list[dict]) -> list[dict]:
         ),
         key=lambda item: int(item.get("StageOrder") or 0),
     )
-    return [{"round": item, "nav_label": "Archief"} for item in finished_rounds]
+    return [
+        {
+            "round": item,
+            "nav_label": str(item.get("RoundShortLabel") or "Archief"),
+            "label": str(
+                item.get("RoundLabel")
+                or f"Etappe {int(item.get('StageOrder') or 0)}"
+            ),
+        }
+        for item in finished_rounds
+    ]
 
 
 def parse_game_identity(game: dict) -> tuple[str, int]:
@@ -994,7 +1062,44 @@ def classify_game_page(game: dict) -> str:
 
 def supports_historic_rider_data(game: dict) -> bool:
     event_id, _year = parse_game_identity(game)
-    return event_id in {"giro", "tdf", "vuelta"}
+    return event_id in {"klassiekerspel", "giro", "tdf", "vuelta"}
+
+
+def is_classics_game(game: dict) -> bool:
+    event_id, _year = parse_game_identity(game)
+    return event_id == "klassiekerspel"
+
+
+def get_historic_game_rounds(client: ScoritoClient, game: dict) -> list[dict]:
+    market_id = int(game["market_id"])
+    if is_classics_game(game):
+        return client.get_classics_market_rounds(market_id)
+    return client.get_market_rounds(market_id)
+
+
+def get_historic_total_rider_scores(client: ScoritoClient, game: dict) -> list:
+    market_id = int(game["market_id"])
+    if is_classics_game(game):
+        return client.build_classics_total_rider_scores(market_id=market_id)
+    return client.build_total_rider_scores(market_id=market_id, points_mode="all")
+
+
+def get_historic_round_rider_scores(
+    client: ScoritoClient,
+    game: dict,
+    market_round_id: int,
+) -> list:
+    market_id = int(game["market_id"])
+    if is_classics_game(game):
+        return client.build_classics_race_rider_scores(
+            market_id=market_id,
+            market_round_id=market_round_id,
+        )
+    return client.build_recommended_riders(
+        market_id=market_id,
+        points_market_round_id=market_round_id,
+        points_mode="all",
+    )
 
 
 def build_page_game_options(current_page: str) -> list[dict]:
@@ -1276,20 +1381,28 @@ def load_rider_history_rows_for_game(client: ScoritoClient, game: dict) -> list[
     event_id, year = parse_game_identity(game)
     page = classify_game_page(game)
 
-    try:
-        rider_rows = client.build_total_rider_scores(
-            market_id=int(game["market_id"]),
-            points_mode="all",
-        )
-    except Exception:
-        return []
+    rider_rows: list = []
+    if page == "archive":
+        historic_snapshot = read_historic_game_snapshot(game)
+        if historic_snapshot is not None:
+            rider_rows = historic_snapshot.get("archive_total_rider_scores", [])
+
+    if not rider_rows:
+        try:
+            rider_rows = get_historic_total_rider_scores(client, game)
+        except Exception:
+            return []
 
     rows: list[dict] = []
     for rider in rider_rows:
-        points = int(rider.display_base_points or rider.display_points or 0)
+        points = int(
+            rider_field_value(rider, "display_base_points", 0)
+            or rider_field_value(rider, "display_points", 0)
+            or 0
+        )
         if points <= 0:
             continue
-        price = int(rider.price or 0)
+        price = int(rider_field_value(rider, "price", 0) or 0)
         points_per_million = (
             (float(points) * 1_000_000.0) / float(price)
             if price > 0
@@ -1298,15 +1411,19 @@ def load_rider_history_rows_for_game(client: ScoritoClient, game: dict) -> list[
 
         rows.append(
             {
-                "rider_id": int(rider.rider_id or 0),
-                "name_short": rider.name_short,
-                "first_name": rider.first_name,
-                "last_name": rider.last_name,
-                "initials": rider.initials,
-                "team_name": rider.team_name,
-                "team_abbreviation": rider.team_abbreviation,
-                "team_image_url": rider.team_image_url,
-                "jersey_url": rider.jersey_url,
+                "rider_id": int(rider_field_value(rider, "rider_id", 0) or 0),
+                "name_short": str(rider_field_value(rider, "name_short", "") or ""),
+                "first_name": str(rider_field_value(rider, "first_name", "") or ""),
+                "last_name": str(rider_field_value(rider, "last_name", "") or ""),
+                "initials": str(rider_field_value(rider, "initials", "") or ""),
+                "team_name": str(rider_field_value(rider, "team_name", "") or ""),
+                "team_abbreviation": str(
+                    rider_field_value(rider, "team_abbreviation", "") or ""
+                ),
+                "team_image_url": str(
+                    rider_field_value(rider, "team_image_url", "") or ""
+                ),
+                "jersey_url": str(rider_field_value(rider, "jersey_url", "") or ""),
                 "points": points,
                 "price": price,
                 "price_millions": (float(price) / 1_000_000.0) if price > 0 else None,
@@ -1352,25 +1469,31 @@ def build_rider_history_snapshot(client: ScoritoClient) -> dict:
         )
     )
 
-    grand_tour_rows_by_points = [
-        row for row in performance_rows
-        if str(row.get("event_group") or "") == "grand_tours"
-    ]
-    grand_tour_rows_by_efficiency = sorted(
-        [copy.deepcopy(row) for row in grand_tour_rows_by_points],
-        key=lambda item: (
-            -(float(item.get("points_per_million") or -1.0)),
-            -int(item.get("points") or 0),
-            -int(item.get("year") or 0),
-            EVENT_ORDER.get(str(item.get("event_id") or ""), len(EVENT_ORDER)),
-            str(item.get("name_short") or "").lower(),
-        ),
-    )
-    grand_tour_rows_by_points = [copy.deepcopy(row) for row in grand_tour_rows_by_points]
-    for position, row in enumerate(grand_tour_rows_by_points, start=1):
-        row["position"] = position
-    for position, row in enumerate(grand_tour_rows_by_efficiency, start=1):
-        row["position"] = position
+    performance_rows_by_group: dict[str, dict[str, list[dict]]] = {}
+    for event_group in ("grand_tours", "klassiekerspel"):
+        rows_by_points = [
+            copy.deepcopy(row)
+            for row in performance_rows
+            if str(row.get("event_group") or "") == event_group
+        ]
+        rows_by_efficiency = sorted(
+            [copy.deepcopy(row) for row in rows_by_points],
+            key=lambda item: (
+                -(float(item.get("points_per_million") or -1.0)),
+                -int(item.get("points") or 0),
+                -int(item.get("year") or 0),
+                EVENT_ORDER.get(str(item.get("event_id") or ""), len(EVENT_ORDER)),
+                str(item.get("name_short") or "").lower(),
+            ),
+        )
+        for position, row in enumerate(rows_by_points, start=1):
+            row["position"] = position
+        for position, row in enumerate(rows_by_efficiency, start=1):
+            row["position"] = position
+        performance_rows_by_group[event_group] = {
+            "points": rows_by_points,
+            "efficiency": rows_by_efficiency,
+        }
 
     cumulative_by_rider: dict[tuple[str, int | str], dict] = {}
     for row in performance_rows:
@@ -1421,9 +1544,24 @@ def build_rider_history_snapshot(client: ScoritoClient) -> dict:
 
     snapshot = {
         "performance_rows_by_metric": {
-            "points": grand_tour_rows_by_points,
-            "efficiency": grand_tour_rows_by_efficiency,
+            "points": [
+                copy.deepcopy(row)
+                for group in performance_rows_by_group.values()
+                for row in group["points"]
+            ],
+            "efficiency": sorted(
+                [
+                    copy.deepcopy(row)
+                    for group in performance_rows_by_group.values()
+                    for row in group["efficiency"]
+                ],
+                key=lambda item: (
+                    -(float(item.get("points_per_million") or -1.0)),
+                    -int(item.get("points") or 0),
+                ),
+            ),
         },
+        "performance_rows_by_group": performance_rows_by_group,
         "cumulative_rows": cumulative_rows,
     }
 
@@ -1434,6 +1572,60 @@ def build_rider_history_snapshot(client: ScoritoClient) -> dict:
         )
 
     return copy.deepcopy(snapshot)
+
+
+def build_rider_scatter_rows(
+    performance_rows_by_group: dict[str, dict[str, list[dict]]],
+) -> dict[str, dict]:
+    scatter_rows_by_group: dict[str, dict] = {
+        "grand_tours": {"images": [], "points": []},
+        "klassiekerspel": {"images": [], "points": []},
+    }
+    for event_group, group_rows in performance_rows_by_group.items():
+        scatter_group = scatter_rows_by_group.get(event_group)
+        if scatter_group is None:
+            continue
+
+        image_indexes: dict[str, int] = {}
+        for row in group_rows.get("points", []):
+            price = int(row.get("price") or 0)
+            points = int(row.get("points") or 0)
+            if price <= 0 or points <= 0:
+                continue
+
+            rider_slug = pcs_rider_slug(row.get("first_name"), row.get("last_name"))
+            image_url = str(
+                PCS_RIDER_PHOTO_URLS.get(rider_slug)
+                or row.get("jersey_url")
+                or row.get("team_image_url")
+                or ""
+            )
+            image_index = -1
+            if image_url:
+                image_index = image_indexes.get(image_url, -1)
+                if image_index < 0:
+                    image_index = len(scatter_group["images"])
+                    scatter_group["images"].append(image_url)
+                    image_indexes[image_url] = image_index
+
+            # Arrays keep the several thousand chart points compact in the HTML payload.
+            scatter_group["points"].append(
+                [
+                    str(row.get("name_short") or "Onbekende renner"),
+                    str(row.get("initials") or ""),
+                    str(row.get("team_name") or ""),
+                    str(row.get("game_label") or ""),
+                    str(row.get("event_id") or ""),
+                    str(row.get("event_label") or ""),
+                    int(row.get("year") or 0),
+                    points,
+                    round(float(price) / 1_000_000.0, 2),
+                    round((float(points) * 1_000_000.0) / float(price), 2),
+                    image_index,
+                ]
+            )
+
+    return scatter_rows_by_group
 
 
 def build_history_year_rows(overview_cards: list[dict]) -> list[dict]:
@@ -1733,6 +1925,105 @@ def build_history_compare_chips(
 
 def history_event_group(event_id: str) -> str:
     return "klassiekerspel" if event_id == "klassiekerspel" else "grand_tours"
+
+
+def history_chart_initials(value: str) -> str:
+    tokens = [
+        token
+        for token in "".join(
+            character if character.isalnum() else " "
+            for character in value
+        ).split()
+        if token
+    ]
+    if not tokens:
+        return "?"
+    if len(tokens) == 1:
+        return tokens[0][:2].upper()
+    return f"{tokens[0][0]}{tokens[1][0]}".upper()
+
+
+def build_history_manager_scatter(
+    overview_cards: list[dict],
+    *,
+    selected_history_user_id: int | None = None,
+) -> dict[str, list[dict]]:
+    archived_cards = sorted(
+        [
+            card
+            for card in overview_cards
+            if bool(card.get("is_archive_game"))
+            and int(card.get("year") or 0) > 0
+            and str(card.get("event_id") or "")
+        ],
+        key=lambda card: (
+            int(card.get("year") or 0),
+            EVENT_ORDER.get(str(card.get("event_id") or ""), len(EVENT_ORDER)),
+        ),
+    )
+
+    short_event_labels = {
+        "klassiekerspel": "Klassieker",
+        "giro": "Giro",
+        "tdf": "TDF",
+        "vuelta": "Vuelta",
+    }
+    events: list[dict] = []
+    points: list[dict] = []
+    for event_index, card in enumerate(archived_cards):
+        event_id = str(card.get("event_id") or "")
+        year = int(card.get("year") or 0)
+        entries = [
+            entry
+            for entry in card.get("standings", [])
+            if not selected_history_user_id
+            or int((entry.get("participant") or {}).get("UserId") or 0)
+            == selected_history_user_id
+        ]
+        events.append(
+            {
+                "index": event_index,
+                "event_id": event_id,
+                "event_label": str(card.get("event_label") or ""),
+                "game_label": str(card.get("label") or ""),
+                "year": year,
+                "axis_label": (
+                    f"{short_event_labels.get(event_id, event_id)} "
+                    f"'{year % 100:02d}"
+                ),
+            }
+        )
+
+        entry_count = len(entries)
+        for entry_index, entry in enumerate(entries):
+            participant = entry.get("participant", {})
+            username = str(
+                participant.get("Username")
+                or participant.get("FullName")
+                or "Onbekende manager"
+            )
+            full_name = str(participant.get("FullName") or "")
+            points.append(
+                {
+                    "user_id": int(participant.get("UserId") or 0),
+                    "name": username,
+                    "full_name": full_name,
+                    "initials": history_chart_initials(full_name or username),
+                    "event_index": event_index,
+                    "event_entry_index": entry_index,
+                    "event_entry_count": entry_count,
+                    "event_id": event_id,
+                    "event_label": str(card.get("event_label") or ""),
+                    "game_label": str(card.get("label") or ""),
+                    "subleague_name": str(card.get("subleague_name") or ""),
+                    "year": year,
+                    "points": int(entry.get("total_points") or 0),
+                    "rank": int(entry.get("rank") or 0),
+                    "market_percentage": entry.get("market_percentage"),
+                }
+            )
+
+    return {"events": events, "points": points}
 
 
 def attach_selected_history_user(
@@ -2255,16 +2546,32 @@ def build_archive_view_tabs(
     archive_total_rider_scores: list,
     archive_standings: list[dict],
     archive_stage_points: list,
+    is_classics: bool = False,
+    has_archive_stage_points: bool | None = None,
 ) -> list[dict]:
+    stage_points_available = (
+        bool(archive_stage_points)
+        if has_archive_stage_points is None
+        else has_archive_stage_points
+    )
     tabs: list[dict] = []
     if archive_standings:
         tabs.append({"id": "standings", "label": "Eindstand"})
-    if archive_total_rider_scores:
+    if archive_total_rider_scores and not is_classics:
         tabs.append({"id": "perfectteam", "label": "Perfect team"})
     if archive_total_rider_scores:
         tabs.append({"id": "totals", "label": "Totaalscore"})
-    if archive_stage_points:
-        tabs.append({"id": "stagepoints", "label": "Renner punten per etappe"})
+    if stage_points_available:
+        tabs.append(
+            {
+                "id": "stagepoints",
+                "label": (
+                    "Renner punten per koers"
+                    if is_classics
+                    else "Renner punten per etappe"
+                ),
+            }
+        )
     return tabs
 
 
@@ -2337,6 +2644,11 @@ def read_historic_game_snapshot(game: dict) -> dict | None:
         return None
     if str(snapshot.get("game_key") or "") != str(game["key"]):
         return None
+    if (
+        is_classics_game(game)
+        and snapshot.get("rider_data_source") != "cyclingteammanager-v2"
+    ):
+        return None
 
     snapshot["archive_standings"] = [dict(row) for row in snapshot.get("archive_standings", [])]
     snapshot["archive_total_rider_scores"] = [
@@ -2358,9 +2670,10 @@ def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
     market_id = int(game["market_id"])
     subleague_id = int(game["subleague_id"])
     include_rider_data = supports_historic_rider_data(game)
+    is_classics = is_classics_game(game)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        rounds_future = executor.submit(client.get_market_rounds, market_id)
+        rounds_future = executor.submit(get_historic_game_rounds, client, game)
         standings_future = executor.submit(
             client.build_archive_standings,
             market_id=market_id,
@@ -2372,8 +2685,9 @@ def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
         )
         totals_future = (
             executor.submit(
-                client.build_total_rider_scores,
-                market_id=market_id,
+                get_historic_total_rider_scores,
+                client,
+                game,
             )
             if include_rider_data else None
         )
@@ -2399,14 +2713,16 @@ def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
         if int(round_item.get("StageStatus", -1)) == 2
     ]
     if include_rider_data and finished_rounds:
+        if is_classics:
+            client.get_classics_market_round_points(market_id)
         worker_count = max(1, min(4, len(finished_rounds)))
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = {
                 executor.submit(
-                    client.build_recommended_riders,
-                    market_id=market_id,
-                    points_market_round_id=int(round_item["MarketRoundId"]),
-                    points_mode="all",
+                    get_historic_round_rider_scores,
+                    client,
+                    game,
+                    int(round_item["MarketRoundId"]),
                 ): str(round_item["MarketRoundId"])
                 for round_item in finished_rounds
             }
@@ -2433,7 +2749,7 @@ def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
         "captain_stage_count": 0,
         "note": "Perfect team is niet beschikbaar voor dit historische spel.",
     }
-    if include_rider_data:
+    if include_rider_data and not is_classics:
         try:
             market_enriched = client.get_market_enriched(market_id)
             projected_final_snapshot = client.get_projected_final_scoring_snapshot(market_id)
@@ -2469,6 +2785,11 @@ def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
         "game_key": str(game["key"]),
         "market_id": market_id,
         "subleague_id": subleague_id,
+        "rider_data_source": (
+            "cyclingteammanager-v2"
+            if is_classics
+            else "cyclingmanager-v1"
+        ),
         "subleague_detail": dict(subleague_detail or {}),
         "rounds": [dict(round_item) for round_item in rounds],
         "archive_standings": [dict(row) for row in archive_standings],
@@ -3657,6 +3978,7 @@ def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
 
     ordered_stages = sorted(stages, key=lambda item: int(item.get("stage_order") or 0))
     snapshots: list[dict] = []
+    previous_standings_rank_by_user_id: dict[int, int] = {}
 
     for stage in ordered_stages:
         market_round_id = int(stage.get("market_round_id") or 0)
@@ -3666,6 +3988,7 @@ def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
         entries: list[dict] = []
         for row in rows:
             participant = row["participant"]
+            user_id = int(participant.get("UserId") or 0)
             stage_meta = next(
                 (
                     item
@@ -3678,6 +4001,7 @@ def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
             cumulative_points = int(row.get("cumulative_points_by_round", {}).get(market_round_id, 0))
             entries.append(
                 {
+                    "user_id": user_id,
                     "name": participant.get("Username", "") or participant.get("FullName", ""),
                     "username": participant.get("Username", ""),
                     "stage_points": stage_points,
@@ -3704,6 +4028,36 @@ def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
                 current_rank = position
                 last_score_key = score_key
             entry["rank"] = current_rank
+
+        standings_entries = sorted(
+            entries,
+            key=lambda item: (
+                -item["cumulative_points"],
+                -item["stage_points"],
+                item["username"].lower(),
+                item["name"].lower(),
+            )
+        )
+        last_standings_key: tuple[int, int] | None = None
+        current_standings_rank = 0
+        current_standings_rank_by_user_id: dict[int, int] = {}
+        for position, entry in enumerate(standings_entries, start=1):
+            standings_key = (entry["cumulative_points"], entry["stage_points"])
+            if standings_key != last_standings_key:
+                current_standings_rank = position
+                last_standings_key = standings_key
+            user_id = int(entry.get("user_id") or 0)
+            previous_standings_rank = previous_standings_rank_by_user_id.get(user_id)
+            entry["standings_rank"] = current_standings_rank
+            entry["previous_standings_rank"] = previous_standings_rank
+            entry["standings_rank_delta"] = (
+                previous_standings_rank - current_standings_rank
+                if previous_standings_rank is not None
+                else None
+            )
+            if user_id > 0:
+                current_standings_rank_by_user_id[user_id] = current_standings_rank
+        previous_standings_rank_by_user_id = current_standings_rank_by_user_id
 
         winner_names = [entry["username"] for entry in entries if entry["is_stage_winner"]]
         leader_names = [entry["username"] for entry in entries if entry["is_subleague_leader"]]
@@ -3745,6 +4099,7 @@ def index():
     requested_rider_history_view = (
         request.args.get("rider_history_view", type=str) or ""
     ).strip().lower()
+    rider_history_full = request.args.get("rider_history_full", type=str) == "1"
     history_view = choose_history_view(requested_history_view)
     history_scores_view = choose_history_scores_view(requested_history_scores_view)
     history_stats_view = choose_history_stats_view(requested_history_stats_view)
@@ -3756,6 +4111,7 @@ def index():
         requested_game_key or get_default_game_key(),
         current_page=current_page,
     )
+    selected_game_is_classics = is_classics_game(selected_game)
     market_id = int(selected_game["market_id"])
     selected_subleague = build_selected_subleague(selected_game)
     requested_market_round_id = request.args.get("market_round_id", type=int)
@@ -3769,6 +4125,8 @@ def index():
         "history_view": history_view,
         "requested_rider_history_view": requested_rider_history_view,
         "rider_history_view": rider_history_view,
+        "rider_history_full": rider_history_full,
+        "rider_history_list_limit": RIDER_HISTORY_DEFAULT_LIST_LIMIT,
         "requested_history_scores_view": requested_history_scores_view,
         "history_scores_view": history_scores_view,
         "requested_history_stats_view": requested_history_stats_view,
@@ -3807,10 +4165,26 @@ def index():
         "history_stats_rows": [],
         "history_trophy_rows": [],
         "history_margin_rows": [],
+        "history_manager_scatter": {
+            "events": [],
+            "points": [],
+        },
         "history_users": [],
         "rider_history_rows_by_metric": {
             "points": [],
             "efficiency": [],
+        },
+        "rider_history_rows_by_group": {
+            "grand_tours": {"points": [], "efficiency": []},
+            "klassiekerspel": {"points": [], "efficiency": []},
+        },
+        "rider_history_group_totals": {
+            "grand_tours": 0,
+            "klassiekerspel": 0,
+        },
+        "rider_history_scatter_by_group": {
+            "grand_tours": {"images": [], "points": []},
+            "klassiekerspel": {"images": [], "points": []},
         },
         "rider_history_cumulative_rows": [],
         "selected_history_user_id": history_user_id,
@@ -3820,6 +4194,7 @@ def index():
         "overview_podiums": [],
         "market_id": market_id,
         "selected_subleague": selected_subleague,
+        "is_classics_game": selected_game_is_classics,
         "rounds": [],
         "stage_button_rounds": [],
         "view_tabs": [],
@@ -3946,10 +4321,36 @@ def index():
                     overview_podiums,
                     compare_user_ids=history_compare_ids,
                 )
+            elif history_view == "graph":
+                context["history_manager_scatter"] = build_history_manager_scatter(
+                    overview_podiums,
+                    selected_history_user_id=selected_history_user_id,
+                )
             return render_template("index.html", **context)
         if current_page == "riders":
             rider_snapshot = build_rider_history_snapshot(client)
             context["rider_history_rows_by_metric"] = rider_snapshot["performance_rows_by_metric"]
+            full_group_rows = rider_snapshot["performance_rows_by_group"]
+            context["rider_history_group_totals"] = {
+                group_name: len(group_rows["points"])
+                for group_name, group_rows in full_group_rows.items()
+            }
+            context["rider_history_rows_by_group"] = {
+                group_name: {
+                    metric_name: (
+                        copy.deepcopy(metric_rows)
+                        if rider_history_full
+                        else copy.deepcopy(
+                            metric_rows[:RIDER_HISTORY_DEFAULT_LIST_LIMIT]
+                        )
+                    )
+                    for metric_name, metric_rows in group_rows.items()
+                }
+                for group_name, group_rows in full_group_rows.items()
+            }
+            context["rider_history_scatter_by_group"] = build_rider_scatter_rows(
+                full_group_rows
+            )
             context["rider_history_cumulative_rows"] = rider_snapshot["cumulative_rows"]
             return render_template("index.html", **context)
 
@@ -3969,9 +4370,20 @@ def index():
                 dict(row)
                 for row in snapshot.get("archive_total_rider_scores", [])
             ]
+            archive_stage_points_by_round = dict(
+                snapshot.get("archive_stage_points_by_round", {})
+            )
+            scored_rounds = [
+                round_item
+                for round_item in rounds
+                if archive_stage_points_by_round.get(
+                    str(round_item.get("MarketRoundId") or 0),
+                    [],
+                )
+            ]
             archive_stage_points = [
                 dict(row)
-                for row in snapshot.get("archive_stage_points_by_round", {}).get(
+                for row in archive_stage_points_by_round.get(
                     str(selected_round["MarketRoundId"]),
                     [],
                 )
@@ -3980,13 +4392,29 @@ def index():
                 snapshot.get("archive_perfect_team")
             )
 
-            stage_button_rounds = build_archive_stage_button_rounds(rounds)
             view_tabs = build_archive_view_tabs(
                 archive_total_rider_scores=archive_total_rider_scores,
                 archive_standings=archive_standings,
                 archive_stage_points=archive_stage_points,
+                is_classics=selected_game_is_classics,
+                has_archive_stage_points=bool(scored_rounds),
             )
             active_view = choose_active_view(view_tabs, requested_view)
+            if active_view == "stagepoints" and scored_rounds:
+                selected_round = choose_archive_round(
+                    scored_rounds,
+                    requested_market_round_id,
+                )
+                archive_stage_points = [
+                    dict(row)
+                    for row in archive_stage_points_by_round.get(
+                        str(selected_round["MarketRoundId"]),
+                        [],
+                    )
+                ]
+                stage_button_rounds = build_archive_stage_button_rounds(scored_rounds)
+            else:
+                stage_button_rounds = build_archive_stage_button_rounds(rounds)
 
             context.update(
                 {
@@ -4066,6 +4494,7 @@ def index():
                 archive_total_rider_scores=archive_total_rider_scores,
                 archive_standings=archive_standings,
                 archive_stage_points=archive_stage_points,
+                is_classics=selected_game_is_classics,
             )
             active_view = choose_active_view(view_tabs, requested_view)
             archive_perfect_team = {

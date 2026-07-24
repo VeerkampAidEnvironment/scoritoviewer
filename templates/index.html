@@ -252,6 +252,9 @@
             {% elif history_view == "headtohead" %}
               {% set overview_result_count = history_head_to_head.common_game_count %}
               {% set overview_result_label = "gedeelde spellen in head-to-head" %}
+            {% elif history_view == "graph" %}
+              {% set overview_result_count = history_manager_scatter.points|length %}
+              {% set overview_result_label = "managerscores in de grafiek" %}
             {% elif history_view == "margins" %}
               {% set overview_result_count = history_margin_rows|length %}
               {% set overview_result_label = "marges van winst" %}
@@ -267,6 +270,8 @@
                   Statistieken
                 {% elif history_view == "headtohead" %}
                   Head-to-head
+                {% elif history_view == "graph" %}
+                  Managerscores door de tijd
                 {% elif history_view == "margins" %}
                   Marge van winst
                 {% else %}
@@ -282,6 +287,8 @@
                   Het statistiekoverzicht bundelt totale score, gemiddeldes, overwinningen en podiums per manager over alle historische spellen.
                 {% elif history_view == "headtohead" %}
                   Vergelijk twee of meer managers rechtstreeks op gedeelde spellen: onderlinge duels, totale punten, gemiddelde scores en alle uitslagen per spel.
+                {% elif history_view == "graph" %}
+                  Iedere cirkel is een managerresultaat. Volg de scores van Klassiekerspel 2017 tot en met Giro 2026, met een gekleurde rand per type wielerspel.
                 {% elif history_view == "margins" %}
                   Bekijk per spel het {{ "kleinste" if history_margin_view == "smallest" else "grootste" }} verschil tussen nummer 1 en nummer 2. Elke kaart klapt open naar de volledige eindstand van dat event.
                 {% elif history_scores_view == "points" %}
@@ -300,6 +307,8 @@
                   <span class="pill pill--blue">{{ "Bekers" if history_stats_view == "trophies" else "Overzicht" }}</span>
                 {% elif history_view == "headtohead" %}
                   <span class="pill pill--blue">{{ history_head_to_head.selected_user_count }} managers geselecteerd</span>
+                {% elif history_view == "graph" %}
+                  <span class="pill pill--blue">{{ history_manager_scatter.events|length }} historische events</span>
                 {% endif %}
                 {% if selected_history_user %}
                   <span class="pill pill--yellow">{{ selected_history_user.username }}</span>
@@ -310,13 +319,25 @@
             <div class="history-overview__leaders">
               <div class="history-overview-card history-overview-card--general">
                 <span class="leader-chip__label">As</span>
-                <strong>X = event</strong>
-                <span>Klassiekerspel, Giro, TDF, Vuelta</span>
+                <strong>X = {{ "tijd / punten" if history_view == "graph" else "event" }}</strong>
+                <span>
+                  {% if history_view == "graph" %}
+                    Tijdlijn of scorevergelijking
+                  {% else %}
+                    Klassiekerspel, Giro, TDF, Vuelta
+                  {% endif %}
+                </span>
               </div>
               <div class="history-overview-card history-overview-card--points">
                 <span class="leader-chip__label">As</span>
-                <strong>Y = jaar</strong>
-                <span>{{ history_year_rows[0].year if history_year_rows else "-" }} tot {{ history_year_rows[-1].year if history_year_rows else "-" }}</span>
+                <strong>Y = {{ "punten / %" if history_view == "graph" else "jaar" }}</strong>
+                <span>
+                  {% if history_view == "graph" %}
+                    Punten of Scorito %, afhankelijk van de grafiek
+                  {% else %}
+                    {{ history_year_rows[0].year if history_year_rows else "-" }} tot {{ history_year_rows[-1].year if history_year_rows else "-" }}
+                  {% endif %}
+                </span>
               </div>
               <div class="history-overview-card history-overview-card--youth">
                 <span class="leader-chip__label">{{ "Managers" if history_view == "headtohead" else ("Manager" if selected_history_user else "Resulten") }}</span>
@@ -402,6 +423,12 @@
               href="{{ url_for('index', page='history', history_view='scores', history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
             >
               Toplijsten
+            </a>
+            <a
+              class="history-tabs__button{% if history_view == 'graph' %} history-tabs__button--active{% endif %}"
+              href="{{ url_for('index', page='history', history_view='graph', history_scores_view=history_scores_view, history_stats_view=history_stats_view, history_margin_view=history_margin_view, history_compare_ids=history_compare_ids_param, history_user_id=selected_history_user_id, game=(selected_game.key if selected_game else None)) }}"
+            >
+              Scoregrafiek
             </a>
             <a
               class="history-tabs__button{% if history_view == 'stats' %} history-tabs__button--active{% endif %}"
@@ -772,6 +799,66 @@
                 </div>
               </section>
             </section>
+          {% elif history_view == "graph" %}
+            <section class="scatter-card scatter-card--manager">
+              <div class="scatter-card__header">
+                <div>
+                  <span class="scatter-card__eyebrow">Historische ontwikkeling</span>
+                  <h2>Managerscores per spel</h2>
+                  <p>
+                    Bekijk resultaten door de tijd of vergelijk direct hoeveel Scorito % bij iedere puntenscore hoort. Beweeg over een manager voor de volledige uitslag.
+                  </p>
+                </div>
+                <div class="scatter-card__stats" aria-label="Grafiekstatistieken">
+                  <span><strong data-scatter-stat="points">{{ history_manager_scatter.points|length }}</strong> scores</span>
+                  <span><strong>{{ history_manager_scatter.events|length }}</strong> events</span>
+                </div>
+              </div>
+
+              <div class="scatter-card__toolbar">
+                <div class="scatter-card__controls">
+                  <div class="scatter-segmented" aria-label="Kies grafiektype">
+                    <button class="scatter-segmented__button scatter-segmented__button--active" type="button" data-scatter-layout="timeline">
+                      Tijdlijn
+                    </button>
+                    <button class="scatter-segmented__button" type="button" data-scatter-layout="correlation">
+                      Punten vs Scorito %
+                    </button>
+                  </div>
+                  <div class="scatter-segmented" aria-label="Kies scoretype" data-scatter-metric-control>
+                    <button class="scatter-segmented__button scatter-segmented__button--active" type="button" data-scatter-metric="points">
+                      Punten
+                    </button>
+                    <button class="scatter-segmented__button" type="button" data-scatter-metric="percentage">
+                      Scorito %
+                    </button>
+                  </div>
+                </div>
+                <div class="scatter-legend" aria-label="Eventkleuren">
+                  <span><i class="scatter-legend__dot scatter-legend__dot--klassiekerspel"></i>Klassiekerspel</span>
+                  <span><i class="scatter-legend__dot scatter-legend__dot--giro"></i>Giro</span>
+                  <span><i class="scatter-legend__dot scatter-legend__dot--tdf"></i>TDF</span>
+                  <span><i class="scatter-legend__dot scatter-legend__dot--vuelta"></i>Vuelta</span>
+                </div>
+              </div>
+
+              <div class="scatter-chart-shell">
+                <div class="scatter-chart-viewport">
+                  <canvas
+                    class="scatter-chart js-scatter-chart"
+                    data-chart-kind="manager"
+                    data-source-id="manager-scatter-data"
+                    data-default-layout="timeline"
+                    data-default-metric="points"
+                    aria-label="Grafiek van managerscores per historisch wielerspel"
+                    role="img"
+                  ></canvas>
+                </div>
+                <div class="scatter-tooltip" role="tooltip" hidden></div>
+              </div>
+              <p class="scatter-card__hint" data-scatter-hint>Sleep horizontaal om alle events te bekijken. De randkleur verwijst naar het type spel.</p>
+              <script id="manager-scatter-data" type="application/json">{{ history_manager_scatter|tojson }}</script>
+            </section>
           {% elif history_view == "headtohead" %}
             <section class="history-scores-section">
               {% if history_head_to_head.selected_user_count < 2 %}
@@ -995,13 +1082,15 @@
           {% endif %}
         {% endif %}
       {% elif current_page == "riders" %}
-        {% set rider_game_total = rider_history_rows_by_metric.points|length %}
+        {% set rider_game_total = rider_history_group_totals.grand_tours + rider_history_group_totals.klassiekerspel %}
         <section class="history-overview">
           <div class="history-overview__content">
             <div class="history-overview__eyebrow">Rider history</div>
             <h1>
               {% if rider_history_view == "cumulative" %}
                 Cumulatieve rennerscores
+              {% elif rider_history_view == "graph" %}
+                Prijs versus punten
               {% else %}
                 Hoogste renner-scores per spel
               {% endif %}
@@ -1009,22 +1098,24 @@
             <p>
               {% if rider_history_view == "cumulative" %}
                 Alle renners gerangschikt op totaal aantal punten over alle spellen samen.
+              {% elif rider_history_view == "graph" %}
+                Ontdek welke renners hun prijs het best waarmaakten. Iedere ronde marker toont een historische rennerprestatie, met een gekleurde rand per event.
               {% else %}
-                De hoogste afzonderlijke renner-prestaties per Grand Tour, inclusief hun punten per miljoen teamwaarde.
+                De hoogste afzonderlijke renner-prestaties in Grand Tours en het Klassiekerspel, inclusief hun punten per miljoen teamwaarde.
               {% endif %}
             </p>
             <div class="history-overview__meta">
               <span class="pill pill--glass">{{ rider_game_total }} spelprestaties</span>
               <span class="pill pill--glass">{{ rider_history_cumulative_rows|length }} renners</span>
-              <span class="pill pill--blue">{{ "Cumulatief" if rider_history_view == "cumulative" else "Per spel" }}</span>
+              <span class="pill pill--blue">{{ "Cumulatief" if rider_history_view == "cumulative" else ("Grafiek" if rider_history_view == "graph" else "Per spel") }}</span>
             </div>
           </div>
 
             <div class="history-overview__leaders">
               <div class="history-overview-card history-overview-card--general">
                 <span class="leader-chip__label">Bron</span>
-              <strong>{{ "Alle spellen" if rider_history_view == "cumulative" else "Grand Tours" }}</strong>
-              <span>{{ "Grand Tours en Klassiekerspel samen" if rider_history_view == "cumulative" else "Per spelprestatie met punten/prijs" }}</span>
+              <strong>Grand Tours + Klassiekerspel</strong>
+              <span>{{ "Alle spellen samen" if rider_history_view == "cumulative" else ("Prijs en punten per prestatie" if rider_history_view == "graph" else "Per spelprestatie met punten/prijs") }}</span>
               </div>
             <div class="history-overview-card history-overview-card--points">
               <span class="leader-chip__label">Records</span>
@@ -1042,7 +1133,7 @@
         <div class="history-tabs history-tabs--subtabs" aria-label="Rider history">
           <a
             class="history-tabs__button{% if rider_history_view == 'games' %} history-tabs__button--active{% endif %}"
-            href="{{ url_for('index', page='riders', rider_history_view='games', game=(selected_game.key if selected_game else None)) }}"
+            href="{{ url_for('index', page='riders', rider_history_view='games', rider_history_full=('1' if rider_history_full else None), game=(selected_game.key if selected_game else None)) }}"
           >
             Hoogste scores per spel
           </a>
@@ -1052,6 +1143,20 @@
           >
             Cumulatief
           </a>
+          <a
+            class="history-tabs__button{% if rider_history_view == 'graph' %} history-tabs__button--active{% endif %}"
+            href="{{ url_for('index', page='riders', rider_history_view='graph', game=(selected_game.key if selected_game else None)) }}"
+          >
+            Prijs / punten grafiek
+          </a>
+          {% if rider_history_view == "games" %}
+            <a
+              class="history-tabs__button"
+              href="{{ url_for('index', page='riders', rider_history_view='games', rider_history_full=(None if rider_history_full else '1'), game=(selected_game.key if selected_game else None)) }}"
+            >
+              {{ "Toon top " ~ rider_history_list_limit if rider_history_full else "Toon alle prestaties" }}
+            </a>
+          {% endif %}
         </div>
 
         {% if rider_history_view == "cumulative" %}
@@ -1101,103 +1206,171 @@
               </div>
             </section>
           </section>
-        {% else %}
-          <section class="history-scores-section">
-            <div class="history-score-panels">
-              <section class="history-score-panel">
-                <div class="history-score-panel__header">
-                  <h2>Op punten</h2>
-                  <span>{{ rider_history_rows_by_metric.points|length }} prestaties</span>
-                </div>
-                <div class="history-result-table-wrap">
-                  <table class="history-result-table history-result-table--compact">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Renner</th>
-                        <th>Spel</th>
-                        <th>Punten</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {% for row in rider_history_rows_by_metric.points %}
-                        <tr>
-                          <td>{{ row.position }}</td>
-                          <td>
-                            <div class="history-result-table__manager">
-                              <strong>{{ row.name_short }}</strong>
-                              <span>{{ row.team_name if row.team_name else "Team onbekend" }}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <div class="history-result-table__manager">
-                              <strong>{{ row.game_label }}</strong>
-                              <span>{{ row.event_label }} {{ row.year }}</span>
-                            </div>
-                          </td>
-                          <td>{{ row.points }} pts</td>
-                        </tr>
-                      {% else %}
-                        <tr>
-                          <td colspan="4">Geen Grand Tour-rennerscores gevonden.</td>
-                        </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-
-              <section class="history-score-panel">
-                <div class="history-score-panel__header">
-                  <h2>Op punten per miljoen</h2>
-                  <span>{{ rider_history_rows_by_metric.efficiency|length }} prestaties</span>
-                </div>
-                <div class="history-result-table-wrap">
-                  <table class="history-result-table history-result-table--compact">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Renner</th>
-                        <th>Spel</th>
-                        <th>Pts / mln</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {% for row in rider_history_rows_by_metric.efficiency %}
-                        <tr>
-                          <td>{{ row.position }}</td>
-                          <td>
-                            <div class="history-result-table__manager">
-                              <strong>{{ row.name_short }}</strong>
-                              <span>{{ row.team_name if row.team_name else "Team onbekend" }}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <div class="history-result-table__manager">
-                              <strong>{{ row.game_label }}</strong>
-                              <span>{{ row.event_label }} {{ row.year }}</span>
-                            </div>
-                          </td>
-                          <td>
-                            {% if row.points_per_million is not none %}
-                              {{ "%.2f"|format(row.points_per_million) }}
-                              <span class="history-inline-note">bij {{ "%.1f"|format(row.price_millions) }} mln</span>
-                            {% else %}
-                              -
-                            {% endif %}
-                          </td>
-                        </tr>
-                      {% else %}
-                        <tr>
-                          <td colspan="4">Geen Grand Tour-rennerscores gevonden.</td>
-                        </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
+        {% elif rider_history_view == "graph" %}
+          <section class="scatter-card scatter-card--rider">
+            <div class="scatter-card__header">
+              <div>
+                <span class="scatter-card__eyebrow">Waardezoeker</span>
+                <h2>Welke renner levert het meeste op?</h2>
+                <p>
+                  De horizontale as toont de prijs in miljoenen, de verticale as de eindscore in dat spel. Hover over een marker voor alle details.
+                </p>
+              </div>
+              <div class="scatter-card__stats" aria-label="Grafiekstatistieken">
+                <span><strong data-scatter-stat="points">0</strong> prestaties</span>
+                <span><strong data-scatter-stat="best">0</strong> beste score</span>
+              </div>
             </div>
+
+            <div class="scatter-card__toolbar">
+              <div class="scatter-segmented" aria-label="Kies speltype">
+                <button class="scatter-segmented__button scatter-segmented__button--active" type="button" data-scatter-group="grand_tours">
+                  Grand Tours
+                </button>
+                <button class="scatter-segmented__button" type="button" data-scatter-group="klassiekerspel">
+                  Klassiekerspel
+                </button>
+              </div>
+              <div class="scatter-legend" aria-label="Eventkleuren">
+                <span><i class="scatter-legend__dot scatter-legend__dot--klassiekerspel"></i>Klassiekerspel</span>
+                <span><i class="scatter-legend__dot scatter-legend__dot--giro"></i>Giro</span>
+                <span><i class="scatter-legend__dot scatter-legend__dot--tdf"></i>TDF</span>
+                <span><i class="scatter-legend__dot scatter-legend__dot--vuelta"></i>Vuelta</span>
+              </div>
+            </div>
+
+            <div class="scatter-chart-shell">
+              <div class="scatter-chart-viewport">
+                <canvas
+                  class="scatter-chart js-scatter-chart"
+                  data-chart-kind="rider"
+                  data-source-id="rider-scatter-data"
+                  data-default-group="grand_tours"
+                  aria-label="Grafiek van historische rennerscores afgezet tegen hun prijs"
+                  role="img"
+                ></canvas>
+              </div>
+              <div class="scatter-tooltip" role="tooltip" hidden></div>
+            </div>
+            <p class="scatter-card__hint">
+              Waar beschikbaar toont de marker de profielfoto van
+              <a href="https://www.procyclingstats.com/" target="_blank" rel="noopener noreferrer">ProCyclingStats</a>.
+              Ontbreekt die, dan blijft het teamshirt of de initialen zichtbaar.
+            </p>
+            <script id="rider-scatter-data" type="application/json">{{ rider_history_scatter_by_group|tojson }}</script>
           </section>
+        {% else %}
+          {% for group_id, group_label in (("grand_tours", "Grand Tours"), ("klassiekerspel", "Klassiekerspel")) %}
+            {% set group_rows = rider_history_rows_by_group[group_id] %}
+            <section class="history-scores-section">
+              <div class="history-score-panels">
+                <section class="history-score-panel">
+                  <div class="history-score-panel__header">
+                    <h2>{{ group_label }} | op punten</h2>
+                    <span>
+                      {% if rider_history_full %}
+                        {{ rider_history_group_totals[group_id] }} prestaties
+                      {% else %}
+                        Top {{ group_rows.points|length }} van {{ rider_history_group_totals[group_id] }}
+                      {% endif %}
+                    </span>
+                  </div>
+                  <div class="history-result-table-wrap">
+                    <table class="history-result-table history-result-table--compact">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Renner</th>
+                          <th>Spel</th>
+                          <th>Punten</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in group_rows.points %}
+                          <tr>
+                            <td>{{ row.position }}</td>
+                            <td>
+                              <div class="history-result-table__manager">
+                                <strong>{{ row.name_short }}</strong>
+                                <span>{{ row.team_name if row.team_name else "Team onbekend" }}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div class="history-result-table__manager">
+                                <strong>{{ row.game_label }}</strong>
+                                <span>{{ row.event_label }} {{ row.year }}</span>
+                              </div>
+                            </td>
+                            <td>{{ row.points }} pts</td>
+                          </tr>
+                        {% else %}
+                          <tr>
+                            <td colspan="4">Geen {{ group_label|lower }}-rennerscores gevonden.</td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <section class="history-score-panel">
+                  <div class="history-score-panel__header">
+                    <h2>{{ group_label }} | punten per miljoen</h2>
+                    <span>
+                      {% if rider_history_full %}
+                        {{ rider_history_group_totals[group_id] }} prestaties
+                      {% else %}
+                        Top {{ group_rows.efficiency|length }} van {{ rider_history_group_totals[group_id] }}
+                      {% endif %}
+                    </span>
+                  </div>
+                  <div class="history-result-table-wrap">
+                    <table class="history-result-table history-result-table--compact">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Renner</th>
+                          <th>Spel</th>
+                          <th>Pts / mln</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in group_rows.efficiency %}
+                          <tr>
+                            <td>{{ row.position }}</td>
+                            <td>
+                              <div class="history-result-table__manager">
+                                <strong>{{ row.name_short }}</strong>
+                                <span>{{ row.team_name if row.team_name else "Team onbekend" }}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div class="history-result-table__manager">
+                                <strong>{{ row.game_label }}</strong>
+                                <span>{{ row.event_label }} {{ row.year }}</span>
+                              </div>
+                            </td>
+                            <td>
+                              {% if row.points_per_million is not none %}
+                                {{ "%.2f"|format(row.points_per_million) }}
+                                <span class="history-inline-note">bij {{ "%.1f"|format(row.price_millions) }} mln</span>
+                              {% else %}
+                                -
+                              {% endif %}
+                            </td>
+                          </tr>
+                        {% else %}
+                          <tr>
+                            <td colspan="4">Geen {{ group_label|lower }}-rennerscores gevonden.</td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </div>
+            </section>
+          {% endfor %}
         {% endif %}
       {% else %}
       <section class="toolbar">
@@ -1255,7 +1428,7 @@
           <div class="toolbar__navs">
             {% if stage_button_rounds and show_stage_filter %}
               <div class="toolbar__nav-group">
-                <span class="toolbar__nav-label">Etappe</span>
+                <span class="toolbar__nav-label">{{ "Koers" if is_classics_game else "Etappe" }}</span>
                 <div class="stage-strip">
                   {% for stage_button in stage_button_rounds %}
                     {% set market_round = stage_button.round %}
@@ -1264,7 +1437,7 @@
                       href="{{ url_for('index', page=current_page, game=(selected_game.key if selected_game else None), market_round_id=market_round.MarketRoundId, view=active_view) }}"
                     >
                       <span class="stage-strip__meta">{{ stage_button.nav_label }}</span>
-                      <strong>Etappe {{ market_round.StageOrder }}</strong>
+                      <strong>{{ stage_button.label or ("Etappe " ~ market_round.StageOrder) }}</strong>
                     </a>
                   {% endfor %}
                 </div>
@@ -1474,9 +1647,21 @@
                     </div>
                     <div class="recommendation-row__main">
                       <span class="recommendation-row__name">{{ rider.name_short }}</span>
-                      <span class="recommendation-row__team">{{ rider.team_abbreviation or rider.team_name }}</span>
+                      <span class="recommendation-row__team">
+                        {{ rider.team_abbreviation or rider.team_name }}
+                        {% if rider.price %}
+                          | {{ "%.1f"|format(rider.price / 1000000) }} mln
+                        {% endif %}
+                      </span>
                     </div>
-                    <span class="recommendation-row__points">{{ rider.display_base_points }} pts</span>
+                    <div class="perfect-team-metrics">
+                      <span class="recommendation-row__points">{{ rider.display_base_points }} pts</span>
+                      {% if rider.price %}
+                        <span class="perfect-team-metrics__detail">
+                          {{ "%.2f"|format((rider.display_base_points * 1000000) / rider.price) }} pts/M
+                        </span>
+                      {% endif %}
+                    </div>
                   </li>
                 {% endfor %}
               </ol>
@@ -1489,10 +1674,16 @@
             <div class="section-heading">
               <div>
                 <div class="section-heading__eyebrow">Historische rennerpunten</div>
-                <h2>Renner punten per etappe {{ selected_round.StageOrder }}</h2>
+                <h2>
+                  {% if is_classics_game %}
+                    Rennerpunten in {{ selected_round.RoundLabel }}
+                  {% else %}
+                    Renner punten per etappe {{ selected_round.StageOrder }}
+                  {% endif %}
+                </h2>
               </div>
               <p>
-                Manageropstellingen ontbreken, maar Scorito bewaart voor deze afgeronde etappe nog wel de punten per renner.
+                Manageropstellingen ontbreken, maar Scorito bewaart voor deze afgeronde {{ "koers" if is_classics_game else "etappe" }} nog wel de punten per renner.
               </p>
             </div>
 
@@ -2748,6 +2939,11 @@
             const buildRankedEntries = (entries, mode) => {
               const sortedEntries = [...entries].sort((left, right) => {
                 if (mode === "standings") {
+                  const leftStandingRank = Number(left.standings_rank);
+                  const rightStandingRank = Number(right.standings_rank);
+                  if (Number.isFinite(leftStandingRank) && Number.isFinite(rightStandingRank) && leftStandingRank !== rightStandingRank) {
+                    return leftStandingRank - rightStandingRank;
+                  }
                   if (right.cumulative_points !== left.cumulative_points) {
                     return right.cumulative_points - left.cumulative_points;
                   }
@@ -2780,9 +2976,56 @@
 
                 return {
                   ...entry,
-                  share_rank: currentRank
+                  share_rank: mode === "standings" && Number.isFinite(Number(entry.standings_rank))
+                    ? Number(entry.standings_rank)
+                    : currentRank,
+                  previous_share_rank: mode === "standings" && Number.isFinite(Number(entry.previous_standings_rank))
+                    ? Number(entry.previous_standings_rank)
+                    : null,
+                  share_rank_delta: mode === "standings" && Number.isFinite(Number(entry.standings_rank_delta))
+                    ? Number(entry.standings_rank_delta)
+                    : null
                 };
               });
+            };
+
+            const getRankDeltaMeta = (entry) => {
+              const delta = Number(entry.share_rank_delta);
+              if (!Number.isFinite(delta)) {
+                return {
+                  text: "Nieuw in stand",
+                  shortText: "Nieuw",
+                  background: "rgba(255, 255, 255, 0.08)",
+                  color: colors.white,
+                  border: "rgba(255, 255, 255, 0.12)"
+                };
+              }
+              if (delta > 0) {
+                return {
+                  text: `${delta} plek${delta === 1 ? "" : "ken"} gestegen`,
+                  shortText: `+${delta}`,
+                  background: "rgba(43, 183, 104, 0.22)",
+                  color: "#d9ffe8",
+                  border: "rgba(43, 183, 104, 0.28)"
+                };
+              }
+              if (delta < 0) {
+                const absoluteDelta = Math.abs(delta);
+                return {
+                  text: `${absoluteDelta} plek${absoluteDelta === 1 ? "" : "ken"} gezakt`,
+                  shortText: `-${absoluteDelta}`,
+                  background: "rgba(255, 141, 151, 0.2)",
+                  color: "#ffe2e6",
+                  border: "rgba(255, 141, 151, 0.26)"
+                };
+              }
+              return {
+                text: "Positie behouden",
+                shortText: "=",
+                background: "rgba(105, 174, 247, 0.18)",
+                color: "#d9edff",
+                border: "rgba(105, 174, 247, 0.24)"
+              };
             };
 
             const buildThresholdScoreEntries = (threshold) => {
@@ -2997,7 +3240,7 @@
                 isStandingsMode ? "standings" : "day"
               );
 
-              const width = 1200;
+              const width = isStandingsMode ? 1280 : 1200;
               const rowHeight = 58;
               const headerHeight = 220;
               const footerHeight = 72;
@@ -3100,28 +3343,33 @@
               const tableY = 270;
               const tableWidth = width - 152;
               const rankWidth = 76;
-              const managerWidth = 510;
-              const scoreWidth = 146;
+              const previousRankWidth = isStandingsMode ? 96 : 0;
+              const managerWidth = isStandingsMode ? 430 : 510;
+              const scoreWidth = isStandingsMode ? 140 : 146;
+              const statusWidth = tableWidth - rankWidth - previousRankWidth - managerWidth - (scoreWidth * 2);
 
               fillRoundedRect(ctx, tableX, tableY, tableWidth, tableHeaderHeight, 18, "rgba(255, 255, 255, 0.06)");
               ctx.font = `700 13px ${fontSans}`;
               ctx.fillStyle = colors.soft;
               ctx.textBaseline = "middle";
-              ctx.fillText("Plek", tableX + 22, tableY + 20);
-              ctx.fillText("Manager", tableX + rankWidth + 20, tableY + 20);
+              ctx.fillText(isStandingsMode ? "Nu" : "Plek", tableX + 22, tableY + 20);
+              if (isStandingsMode) {
+                ctx.fillText("Vorige", tableX + rankWidth + 20, tableY + 20);
+              }
+              ctx.fillText("Manager", tableX + rankWidth + previousRankWidth + 20, tableY + 20);
               ctx.textAlign = "center";
               ctx.fillText(
                 isStandingsMode ? "Totaal" : "Etappe",
-                tableX + rankWidth + managerWidth + (scoreWidth / 2),
+                tableX + rankWidth + previousRankWidth + managerWidth + (scoreWidth / 2),
                 tableY + 20
               );
               ctx.fillText(
                 isStandingsMode ? "Etappe" : "Totaal",
-                tableX + rankWidth + managerWidth + scoreWidth + (scoreWidth / 2),
+                tableX + rankWidth + previousRankWidth + managerWidth + scoreWidth + (scoreWidth / 2),
                 tableY + 20
               );
               ctx.textAlign = "left";
-              ctx.fillText("Status", tableX + rankWidth + managerWidth + (scoreWidth * 2) + 20, tableY + 20);
+              ctx.fillText("Status", tableX + rankWidth + previousRankWidth + managerWidth + (scoreWidth * 2) + 20, tableY + 20);
 
               entries.forEach((entry, index) => {
                 const rowY = tableY + tableHeaderHeight + (index * rowHeight);
@@ -3133,12 +3381,19 @@
                 ctx.textAlign = "left";
                 ctx.fillText(String(entry.share_rank), tableX + 22, rowY + 32);
 
+                if (isStandingsMode) {
+                  const previousLabel = entry.previous_share_rank === null ? "-" : String(entry.previous_share_rank);
+                  ctx.font = `600 18px ${fontSans}`;
+                  ctx.fillStyle = entry.previous_share_rank === null ? colors.soft : "#d9edff";
+                  ctx.fillText(previousLabel, tableX + rankWidth + 22, rowY + 32);
+                }
+
                 ctx.font = `700 20px ${fontSans}`;
-                const managerTextX = tableX + rankWidth + 20;
+                const managerTextX = tableX + rankWidth + previousRankWidth + 20;
                 ctx.fillStyle = colors.white;
                 ctx.fillText(fitText(ctx, entry.username || entry.name, managerWidth - 140), managerTextX, rowY + 34);
 
-                const firstScoreX = tableX + rankWidth + managerWidth + 28;
+                const firstScoreX = tableX + rankWidth + previousRankWidth + managerWidth + 28;
                 const secondScoreX = firstScoreX + scoreWidth;
                 const stageScoreTheme = entry.stage_points >= 400
                   ? {
@@ -3182,32 +3437,60 @@
                   font: `700 15px ${fontSans}`
                 });
 
-                let badgeX = tableX + rankWidth + managerWidth + (scoreWidth * 2) + 20;
-                if (entry.is_stage_winner) {
+                let badgeX = tableX + rankWidth + previousRankWidth + managerWidth + (scoreWidth * 2) + 20;
+                if (isStandingsMode) {
+                  const deltaMeta = getRankDeltaMeta(entry);
                   badgeX += drawPill(ctx, {
                     x: badgeX,
                     y: rowY + 13,
-                    text: "Winnaar",
+                    text: deltaMeta.text,
                     height: 28,
                     paddingX: 12,
-                    background: "rgba(255, 216, 76, 0.18)",
-                    color: colors.yellow,
-                    border: "rgba(255, 216, 76, 0.2)",
+                    background: deltaMeta.background,
+                    color: deltaMeta.color,
+                    border: deltaMeta.border,
                     font: `700 13px ${fontSans}`
                   }) + 8;
-                }
-                if (entry.is_subleague_leader) {
-                  drawPill(ctx, {
-                    x: badgeX,
-                    y: rowY + 13,
-                    text: "Gele trui",
-                    height: 28,
-                    paddingX: 12,
-                    background: "rgba(255, 216, 76, 0.26)",
-                    color: "#3c2800",
-                    border: "rgba(255, 216, 76, 0.3)",
-                    font: `700 13px ${fontSans}`
-                  });
+                  if (entry.is_subleague_leader) {
+                    drawPill(ctx, {
+                      x: badgeX,
+                      y: rowY + 13,
+                      text: "Gele trui",
+                      height: 28,
+                      paddingX: 12,
+                      background: "rgba(255, 216, 76, 0.26)",
+                      color: "#3c2800",
+                      border: "rgba(255, 216, 76, 0.3)",
+                      font: `700 13px ${fontSans}`
+                    });
+                  }
+                } else {
+                  if (entry.is_stage_winner) {
+                    badgeX += drawPill(ctx, {
+                      x: badgeX,
+                      y: rowY + 13,
+                      text: "Winnaar",
+                      height: 28,
+                      paddingX: 12,
+                      background: "rgba(255, 216, 76, 0.18)",
+                      color: colors.yellow,
+                      border: "rgba(255, 216, 76, 0.2)",
+                      font: `700 13px ${fontSans}`
+                    }) + 8;
+                  }
+                  if (entry.is_subleague_leader) {
+                    drawPill(ctx, {
+                      x: badgeX,
+                      y: rowY + 13,
+                      text: "Gele trui",
+                      height: 28,
+                      paddingX: 12,
+                      background: "rgba(255, 216, 76, 0.26)",
+                      color: "#3c2800",
+                      border: "rgba(255, 216, 76, 0.3)",
+                      font: `700 13px ${fontSans}`
+                    });
+                  }
                 }
               });
 
@@ -3332,6 +3615,645 @@
         </script>
       {% endif %}
       {% endif %}
+      <script>
+        (() => {
+          const eventColors = {
+            klassiekerspel: "#64d8c9",
+            giro: "#ff7ab6",
+            tdf: "#ffd84c",
+            vuelta: "#ff746d"
+          };
+          const numberFormatter = new Intl.NumberFormat("nl-NL");
+          const decimalFormatter = new Intl.NumberFormat("nl-NL", {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 2
+          });
+
+          const niceMaximum = (value) => {
+            if (!Number.isFinite(value) || value <= 0) {
+              return 1;
+            }
+            const paddedValue = value * 1.08;
+            const magnitude = 10 ** Math.floor(Math.log10(paddedValue));
+            const normalized = paddedValue / magnitude;
+            const scaleSteps = [1, 1.2, 1.5, 2, 2.5, 5, 7.5, 10];
+            const step = scaleSteps.find((candidate) => normalized <= candidate) || 10;
+            return step * magnitude;
+          };
+
+          const addTooltipMetric = (container, label, value) => {
+            const metric = document.createElement("span");
+            metric.className = "scatter-tooltip__metric";
+            const metricLabel = document.createElement("span");
+            metricLabel.textContent = label;
+            const metricValue = document.createElement("b");
+            metricValue.textContent = value;
+            metric.append(metricLabel, metricValue);
+            container.appendChild(metric);
+          };
+
+          document.querySelectorAll(".js-scatter-chart").forEach((canvas) => {
+            const source = document.getElementById(canvas.dataset.sourceId || "");
+            const card = canvas.closest(".scatter-card");
+            const shell = canvas.closest(".scatter-chart-shell");
+            const viewport = canvas.closest(".scatter-chart-viewport");
+            const tooltip = shell ? shell.querySelector(".scatter-tooltip") : null;
+            const context = canvas.getContext("2d");
+            if (!source || !card || !shell || !viewport || !tooltip || !context) {
+              return;
+            }
+
+            let payload;
+            try {
+              payload = JSON.parse(source.textContent || "{}");
+            } catch (error) {
+              return;
+            }
+
+            const chartKind = canvas.dataset.chartKind === "manager" ? "manager" : "rider";
+            let activeGroup = canvas.dataset.defaultGroup || "grand_tours";
+            let activeLayout = canvas.dataset.defaultLayout || "timeline";
+            let activeMetric = canvas.dataset.defaultMetric || "points";
+            let renderedPoints = [];
+            let hoveredPoint = null;
+            let drawFrame = 0;
+            const imageCache = new Map();
+            const normalizedRiderGroups = new Map();
+
+            const getChartData = () => {
+              if (chartKind === "manager") {
+                const managerPoints = Array.isArray(payload.points) ? payload.points : [];
+                const requiresPercentage = activeLayout === "correlation"
+                  || activeMetric === "percentage";
+                return {
+                  points: requiresPercentage
+                    ? managerPoints.filter(
+                        (point) => point.market_percentage !== null
+                          && point.market_percentage !== undefined
+                      )
+                    : managerPoints,
+                  events: Array.isArray(payload.events) ? payload.events : []
+                };
+              }
+              if (!normalizedRiderGroups.has(activeGroup)) {
+                const groupPayload = payload[activeGroup] || {};
+                const images = Array.isArray(groupPayload.images) ? groupPayload.images : [];
+                const compactPoints = Array.isArray(groupPayload.points) ? groupPayload.points : [];
+                normalizedRiderGroups.set(
+                  activeGroup,
+                  compactPoints.map((point) => ({
+                    name: point[0] || "Onbekende renner",
+                    initials: point[1] || "",
+                    team_name: point[2] || "",
+                    game_label: point[3] || "",
+                    event_id: point[4] || "",
+                    event_label: point[5] || "",
+                    year: Number(point[6]) || 0,
+                    points: Number(point[7]) || 0,
+                    price_millions: Number(point[8]) || 0,
+                    points_per_million: Number(point[9]) || 0,
+                    image_url: Number(point[10]) >= 0 ? (images[Number(point[10])] || "") : ""
+                  }))
+                );
+              }
+              return {
+                points: normalizedRiderGroups.get(activeGroup) || [],
+                events: []
+              };
+            };
+
+            const getPointValue = (point) => (
+              chartKind === "manager"
+                && (activeLayout === "correlation" || activeMetric === "percentage")
+                ? (Number(point.market_percentage) || 0)
+                : (Number(point.points) || 0)
+            );
+
+            const updateStats = (points) => {
+              const countTarget = card.querySelector('[data-scatter-stat="points"]');
+              const bestTarget = card.querySelector('[data-scatter-stat="best"]');
+              if (countTarget) {
+                countTarget.textContent = numberFormatter.format(points.length);
+              }
+              if (bestTarget) {
+                const bestScore = points.reduce(
+                  (currentBest, point) => Math.max(currentBest, Number(point.points) || 0),
+                  0
+                );
+                bestTarget.textContent = numberFormatter.format(bestScore);
+              }
+            };
+
+            const scheduleDraw = () => {
+              window.cancelAnimationFrame(drawFrame);
+              drawFrame = window.requestAnimationFrame(draw);
+            };
+
+            const getImage = (url) => {
+              if (!url) {
+                return null;
+              }
+              if (imageCache.has(url)) {
+                return imageCache.get(url);
+              }
+              const image = new Image();
+              image.decoding = "async";
+              image.referrerPolicy = "no-referrer";
+              image.onload = scheduleDraw;
+              image.onerror = scheduleDraw;
+              image.src = url;
+              imageCache.set(url, image);
+              return image;
+            };
+
+            const setCanvasSize = (events) => {
+              const mobile = window.matchMedia("(max-width: 680px)").matches;
+              const managerTimeline = chartKind === "manager" && activeLayout === "timeline";
+              const minimumWidth = managerTimeline
+                ? Math.max(760, 150 + (events.length * 84))
+                : chartKind === "manager"
+                  ? (mobile ? 760 : 980)
+                  : (mobile ? 860 : 980);
+              const cssWidth = Math.max(viewport.clientWidth, minimumWidth);
+              const cssHeight = mobile ? 500 : (chartKind === "manager" ? 610 : 570);
+              const ratio = Math.min(window.devicePixelRatio || 1, 2);
+
+              canvas.style.width = `${cssWidth}px`;
+              canvas.style.height = `${cssHeight}px`;
+              canvas.width = Math.round(cssWidth * ratio);
+              canvas.height = Math.round(cssHeight * ratio);
+              context.setTransform(ratio, 0, 0, ratio, 0, 0);
+              return { width: cssWidth, height: cssHeight };
+            };
+
+            const drawCircleMarker = (point, x, y, radius, isHovered) => {
+              const accent = eventColors[point.event_id] || "#9ccfff";
+              context.save();
+              context.globalAlpha = isHovered ? 1 : 0.88;
+              context.beginPath();
+              context.arc(x, y, radius, 0, Math.PI * 2);
+              context.fillStyle = chartKind === "manager" ? "#102f4d" : "#edf5fb";
+              context.fill();
+              context.clip();
+
+              if (chartKind === "rider") {
+                const image = getImage(point.image_url);
+                if (image && image.complete && image.naturalWidth > 0) {
+                  const sourceSize = Math.min(image.naturalWidth, image.naturalHeight);
+                  const sourceX = (image.naturalWidth - sourceSize) / 2;
+                  const sourceY = Math.min(
+                    Math.max(0, image.naturalHeight * 0.04),
+                    image.naturalHeight - sourceSize
+                  );
+                  const imageSize = radius * 2;
+                  context.drawImage(
+                    image,
+                    sourceX,
+                    sourceY,
+                    sourceSize,
+                    sourceSize,
+                    x - (imageSize / 2),
+                    y - (imageSize / 2),
+                    imageSize,
+                    imageSize
+                  );
+                } else {
+                  context.fillStyle = "#15314d";
+                  context.font = `800 ${Math.max(7, radius * 0.72)}px "Space Grotesk", sans-serif`;
+                  context.textAlign = "center";
+                  context.textBaseline = "middle";
+                  context.fillText(point.initials || "?", x, y + 0.5);
+                }
+              } else {
+                context.fillStyle = "#f6fbff";
+                context.font = `800 ${Math.max(8, radius * 0.68)}px "Space Grotesk", sans-serif`;
+                context.textAlign = "center";
+                context.textBaseline = "middle";
+                context.fillText(point.initials || "?", x, y + 0.5);
+              }
+              context.restore();
+
+              context.save();
+              context.beginPath();
+              context.arc(x, y, radius, 0, Math.PI * 2);
+              context.strokeStyle = accent;
+              context.lineWidth = isHovered ? 3.5 : 2.4;
+              context.shadowColor = isHovered ? accent : "transparent";
+              context.shadowBlur = isHovered ? 16 : 0;
+              context.stroke();
+              if (isHovered) {
+                context.beginPath();
+                context.arc(x, y, radius + 5, 0, Math.PI * 2);
+                context.strokeStyle = "rgba(255, 255, 255, 0.72)";
+                context.lineWidth = 1;
+                context.stroke();
+              }
+              context.restore();
+            };
+
+            function draw() {
+              const { points, events } = getChartData();
+              updateStats(points);
+              const { width, height } = setCanvasSize(events);
+              context.clearRect(0, 0, width, height);
+
+              const margins = {
+                top: 32,
+                right: 34,
+                bottom: chartKind === "manager" && activeLayout === "timeline" ? 116 : 72,
+                left: 78
+              };
+              const plotWidth = width - margins.left - margins.right;
+              const plotHeight = height - margins.top - margins.bottom;
+              const maximumScore = chartKind === "manager"
+                && (activeLayout === "correlation" || activeMetric === "percentage")
+                ? 100
+                : niceMaximum(
+                    points.reduce(
+                      (currentMaximum, point) => Math.max(
+                        currentMaximum,
+                        getPointValue(point)
+                      ),
+                      0
+                    )
+                  );
+
+              context.fillStyle = "rgba(1, 15, 27, 0.2)";
+              context.fillRect(margins.left, margins.top, plotWidth, plotHeight);
+
+              const yTickCount = 5;
+              context.font = '700 11px "Space Grotesk", sans-serif';
+              context.textBaseline = "middle";
+              for (let tickIndex = 0; tickIndex <= yTickCount; tickIndex += 1) {
+                const tickRatio = tickIndex / yTickCount;
+                const y = margins.top + (tickRatio * plotHeight);
+                const tickValue = maximumScore * (1 - tickRatio);
+
+                context.beginPath();
+                context.moveTo(margins.left, y);
+                context.lineTo(width - margins.right, y);
+                context.strokeStyle = tickIndex === yTickCount
+                  ? "rgba(255, 255, 255, 0.2)"
+                  : "rgba(255, 255, 255, 0.075)";
+                context.lineWidth = 1;
+                context.stroke();
+
+                context.fillStyle = "rgba(246, 251, 255, 0.58)";
+                context.textAlign = "right";
+                context.fillText(
+                  chartKind === "manager"
+                    && (activeLayout === "correlation" || activeMetric === "percentage")
+                    ? `${numberFormatter.format(Math.round(tickValue))}%`
+                    : numberFormatter.format(Math.round(tickValue)),
+                  margins.left - 12,
+                  y
+                );
+              }
+
+              context.save();
+              context.translate(21, margins.top + (plotHeight / 2));
+              context.rotate(-Math.PI / 2);
+              context.fillStyle = "rgba(246, 251, 255, 0.58)";
+              context.font = '800 11px "Space Grotesk", sans-serif';
+              context.textAlign = "center";
+              context.fillText(
+                chartKind === "manager"
+                  && (activeLayout === "correlation" || activeMetric === "percentage")
+                  ? "SCORITO %"
+                  : "SCORE (PUNTEN)",
+                0,
+                0
+              );
+              context.restore();
+
+              let xForPoint;
+              if (chartKind === "rider") {
+                const maximumPrice = niceMaximum(
+                  points.reduce(
+                    (currentMaximum, point) => Math.max(
+                      currentMaximum,
+                      Number(point.price_millions) || 0
+                    ),
+                    0
+                  )
+                );
+                const xTickCount = 5;
+                for (let tickIndex = 0; tickIndex <= xTickCount; tickIndex += 1) {
+                  const tickRatio = tickIndex / xTickCount;
+                  const x = margins.left + (tickRatio * plotWidth);
+                  const tickValue = maximumPrice * tickRatio;
+                  context.beginPath();
+                  context.moveTo(x, margins.top);
+                  context.lineTo(x, margins.top + plotHeight);
+                  context.strokeStyle = "rgba(255, 255, 255, 0.045)";
+                  context.lineWidth = 1;
+                  context.stroke();
+                  context.fillStyle = "rgba(246, 251, 255, 0.58)";
+                  context.font = '700 11px "Space Grotesk", sans-serif';
+                  context.textAlign = "center";
+                  context.textBaseline = "top";
+                  context.fillText(
+                    `${decimalFormatter.format(tickValue)}M`,
+                    x,
+                    margins.top + plotHeight + 12
+                  );
+                }
+                context.fillStyle = "rgba(246, 251, 255, 0.48)";
+                context.font = '800 10px "Space Grotesk", sans-serif';
+                context.textAlign = "center";
+                context.fillText(
+                  "PRIJS VAN DE RENNER",
+                  margins.left + (plotWidth / 2),
+                  height - 12
+                );
+                xForPoint = (point) => (
+                  margins.left
+                  + ((Number(point.price_millions) || 0) / maximumPrice) * plotWidth
+                );
+              } else if (activeLayout === "correlation") {
+                const maximumPoints = niceMaximum(
+                  points.reduce(
+                    (currentMaximum, point) => Math.max(
+                      currentMaximum,
+                      Number(point.points) || 0
+                    ),
+                    0
+                  )
+                );
+                const xTickCount = 5;
+                for (let tickIndex = 0; tickIndex <= xTickCount; tickIndex += 1) {
+                  const tickRatio = tickIndex / xTickCount;
+                  const x = margins.left + (tickRatio * plotWidth);
+                  const tickValue = maximumPoints * tickRatio;
+                  context.beginPath();
+                  context.moveTo(x, margins.top);
+                  context.lineTo(x, margins.top + plotHeight);
+                  context.strokeStyle = "rgba(255, 255, 255, 0.045)";
+                  context.lineWidth = 1;
+                  context.stroke();
+                  context.fillStyle = "rgba(246, 251, 255, 0.58)";
+                  context.font = '700 11px "Space Grotesk", sans-serif';
+                  context.textAlign = "center";
+                  context.textBaseline = "top";
+                  context.fillText(
+                    numberFormatter.format(Math.round(tickValue)),
+                    x,
+                    margins.top + plotHeight + 12
+                  );
+                }
+                context.fillStyle = "rgba(246, 251, 255, 0.48)";
+                context.font = '800 10px "Space Grotesk", sans-serif';
+                context.textAlign = "center";
+                context.fillText(
+                  "MANAGERPUNTEN",
+                  margins.left + (plotWidth / 2),
+                  height - 12
+                );
+                xForPoint = (point) => (
+                  margins.left
+                  + ((Number(point.points) || 0) / maximumPoints) * plotWidth
+                );
+              } else {
+                const eventDivisor = Math.max(events.length - 1, 1);
+                events.forEach((event, index) => {
+                  const x = events.length === 1
+                    ? margins.left + (plotWidth / 2)
+                    : margins.left + ((index / eventDivisor) * plotWidth);
+                  context.beginPath();
+                  context.moveTo(x, margins.top);
+                  context.lineTo(x, margins.top + plotHeight);
+                  context.strokeStyle = "rgba(255, 255, 255, 0.045)";
+                  context.lineWidth = 1;
+                  context.stroke();
+
+                  context.save();
+                  context.translate(x - 3, margins.top + plotHeight + 17);
+                  context.rotate(Math.PI / 3.2);
+                  context.fillStyle = eventColors[event.event_id] || "rgba(246, 251, 255, 0.62)";
+                  context.font = '800 10px "Space Grotesk", sans-serif';
+                  context.textAlign = "left";
+                  context.textBaseline = "middle";
+                  context.fillText(event.axis_label || event.game_label || "", 0, 0);
+                  context.restore();
+                });
+                xForPoint = (point) => {
+                  const baseX = events.length === 1
+                    ? margins.left + (plotWidth / 2)
+                    : margins.left
+                      + ((Number(point.event_index) || 0) / eventDivisor) * plotWidth;
+                  const entryCount = Math.max(Number(point.event_entry_count) || 1, 1);
+                  const entryIndex = Number(point.event_entry_index) || 0;
+                  const centeredIndex = entryIndex - ((entryCount - 1) / 2);
+                  const spacing = Math.min(6, 52 / Math.max(entryCount - 1, 1));
+                  return baseX + (centeredIndex * spacing);
+                };
+              }
+
+              renderedPoints = [];
+              const orderedPoints = [...points].sort(
+                (left, right) => getPointValue(left) - getPointValue(right)
+              );
+              orderedPoints.forEach((point) => {
+                const x = xForPoint(point);
+                const y = margins.top
+                  + (1 - (getPointValue(point) / maximumScore)) * plotHeight;
+                const isHovered = hoveredPoint === point;
+                const radius = chartKind === "manager" ? 13 : 11;
+                drawCircleMarker(point, x, y, radius, isHovered);
+                renderedPoints.push({ point, x, y, radius });
+              });
+
+              if (!points.length) {
+                context.fillStyle = "rgba(246, 251, 255, 0.58)";
+                context.font = '700 14px "Space Grotesk", sans-serif';
+                context.textAlign = "center";
+                context.textBaseline = "middle";
+                context.fillText(
+                  "Geen historische scores beschikbaar",
+                  margins.left + (plotWidth / 2),
+                  margins.top + (plotHeight / 2)
+                );
+              }
+            }
+
+            const hideTooltip = () => {
+              hoveredPoint = null;
+              tooltip.hidden = true;
+              scheduleDraw();
+            };
+
+            const showTooltip = (point, pointerEvent) => {
+              const accent = eventColors[point.event_id] || "#9ccfff";
+              tooltip.style.setProperty("--tooltip-accent", accent);
+              tooltip.replaceChildren();
+
+              const eyebrow = document.createElement("span");
+              eyebrow.className = "scatter-tooltip__eyebrow";
+              eyebrow.textContent = `${point.event_label || point.event_id} ${point.year || ""}`.trim();
+              const title = document.createElement("strong");
+              title.textContent = point.name || "Onbekend";
+              const metrics = document.createElement("span");
+              metrics.className = "scatter-tooltip__metrics";
+
+              addTooltipMetric(
+                metrics,
+                "Score",
+                `${numberFormatter.format(Number(point.points) || 0)} pts`
+              );
+              if (chartKind === "rider") {
+                addTooltipMetric(
+                  metrics,
+                  "Prijs",
+                  `${decimalFormatter.format(Number(point.price_millions) || 0)} mln`
+                );
+                addTooltipMetric(
+                  metrics,
+                  "Waarde",
+                  `${decimalFormatter.format(Number(point.points_per_million) || 0)} pts/M`
+                );
+                addTooltipMetric(metrics, "Spel", point.game_label || "-");
+              } else {
+                addTooltipMetric(metrics, "Plek", point.rank ? `#${point.rank}` : "-");
+                addTooltipMetric(
+                  metrics,
+                  "Scorito",
+                  point.market_percentage === null || point.market_percentage === undefined
+                    ? "-"
+                    : `${decimalFormatter.format(Number(point.market_percentage))}%`
+                );
+                addTooltipMetric(metrics, "Spel", point.game_label || "-");
+              }
+
+              const meta = document.createElement("span");
+              meta.className = "scatter-tooltip__meta";
+              if (chartKind === "rider") {
+                meta.textContent = point.team_name || "Team onbekend";
+              } else {
+                const fullName = point.full_name && point.full_name !== point.name
+                  ? point.full_name
+                  : "";
+                meta.textContent = [fullName, point.subleague_name].filter(Boolean).join(" | ");
+              }
+              tooltip.append(eyebrow, title, metrics);
+              if (meta.textContent) {
+                tooltip.appendChild(meta);
+              }
+              tooltip.hidden = false;
+
+              const shellRect = shell.getBoundingClientRect();
+              const tooltipRect = tooltip.getBoundingClientRect();
+              let left = pointerEvent.clientX - shellRect.left + 16;
+              let top = pointerEvent.clientY - shellRect.top + 16;
+              left = Math.max(
+                10,
+                Math.min(left, shell.clientWidth - tooltipRect.width - 10)
+              );
+              if (top + tooltipRect.height > shell.clientHeight - 10) {
+                top = Math.max(10, top - tooltipRect.height - 28);
+              }
+              tooltip.style.left = `${left}px`;
+              tooltip.style.top = `${top}px`;
+            };
+
+            canvas.addEventListener("pointermove", (event) => {
+              const canvasRect = canvas.getBoundingClientRect();
+              const pointerX = event.clientX - canvasRect.left;
+              const pointerY = event.clientY - canvasRect.top;
+              let nearest = null;
+              let nearestDistance = Number.POSITIVE_INFINITY;
+              for (let index = renderedPoints.length - 1; index >= 0; index -= 1) {
+                const renderedPoint = renderedPoints[index];
+                const distance = Math.hypot(
+                  pointerX - renderedPoint.x,
+                  pointerY - renderedPoint.y
+                );
+                if (distance <= renderedPoint.radius + 5 && distance < nearestDistance) {
+                  nearest = renderedPoint;
+                  nearestDistance = distance;
+                }
+              }
+
+              if (!nearest) {
+                if (hoveredPoint) {
+                  hideTooltip();
+                }
+                return;
+              }
+              if (hoveredPoint !== nearest.point) {
+                hoveredPoint = nearest.point;
+                scheduleDraw();
+              }
+              showTooltip(nearest.point, event);
+            });
+            canvas.addEventListener("pointerleave", hideTooltip);
+
+            card.querySelectorAll("[data-scatter-group]").forEach((button) => {
+              button.addEventListener("click", () => {
+                activeGroup = button.dataset.scatterGroup || "grand_tours";
+                hoveredPoint = null;
+                tooltip.hidden = true;
+                card.querySelectorAll("[data-scatter-group]").forEach((otherButton) => {
+                  otherButton.classList.toggle(
+                    "scatter-segmented__button--active",
+                    otherButton === button
+                  );
+                });
+                viewport.scrollLeft = 0;
+                scheduleDraw();
+              });
+            });
+
+            card.querySelectorAll("[data-scatter-metric]").forEach((button) => {
+              button.addEventListener("click", () => {
+                activeMetric = button.dataset.scatterMetric || "points";
+                hoveredPoint = null;
+                tooltip.hidden = true;
+                card.querySelectorAll("[data-scatter-metric]").forEach((otherButton) => {
+                  otherButton.classList.toggle(
+                    "scatter-segmented__button--active",
+                    otherButton === button
+                  );
+                });
+                scheduleDraw();
+              });
+            });
+
+            card.querySelectorAll("[data-scatter-layout]").forEach((button) => {
+              button.addEventListener("click", () => {
+                activeLayout = button.dataset.scatterLayout || "timeline";
+                hoveredPoint = null;
+                tooltip.hidden = true;
+                card.querySelectorAll("[data-scatter-layout]").forEach((otherButton) => {
+                  otherButton.classList.toggle(
+                    "scatter-segmented__button--active",
+                    otherButton === button
+                  );
+                });
+                const metricControl = card.querySelector("[data-scatter-metric-control]");
+                if (metricControl) {
+                  metricControl.hidden = activeLayout === "correlation";
+                }
+                const hint = card.querySelector("[data-scatter-hint]");
+                if (hint) {
+                  hint.textContent = activeLayout === "correlation"
+                    ? "Iedere cirkel koppelt de behaalde managerpunten aan het bijbehorende Scorito %. De randkleur verwijst naar het type spel."
+                    : "Sleep horizontaal om alle events te bekijken. De randkleur verwijst naar het type spel.";
+                }
+                viewport.scrollLeft = 0;
+                scheduleDraw();
+              });
+            });
+
+            if ("ResizeObserver" in window) {
+              const resizeObserver = new ResizeObserver(scheduleDraw);
+              resizeObserver.observe(viewport);
+            } else {
+              window.addEventListener("resize", scheduleDraw);
+            }
+            scheduleDraw();
+          });
+        })();
+      </script>
       <script>
         (() => {
           const table = document.querySelector(".js-history-stats-table");
