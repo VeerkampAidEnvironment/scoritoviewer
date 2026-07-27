@@ -2067,7 +2067,7 @@
                       x="{{ stage.x }}"
                       y="{{ score_trend_chart.plot_bottom + 28 }}"
                       text-anchor="middle"
-                    >Et {{ stage.stage_order }}</text>
+                    >{{ stage.label }}</text>
                   {% endfor %}
 
                   <line
@@ -2134,7 +2134,7 @@
                 <h2>Alle gebruikers en scores per etappe</h2>
               </div>
               <p>
-                Alleen voltooide etappes. &#9733; = etappewinst, gele trui = leider na die etappe. Scores vanaf 300 en 400 punten krijgen extra nadruk.
+                Alleen voltooide etappes. Na etappe 21 volgt het eindklassement inclusief ploeggenootpunten. &#9733; = etappewinst, gele trui = leider na die etappe.
               </p>
             </div>
 
@@ -2160,7 +2160,7 @@
                           value="{{ snapshot.market_round_id }}"
                           {% if snapshot.market_round_id == selected_stage_result_market_round_id %}selected{% endif %}
                         >
-                          Etappe {{ snapshot.stage_order }}
+                          {{ snapshot.label }}
                         </option>
                       {% endfor %}
                     </select>
@@ -2190,7 +2190,7 @@
                     <th>Plek</th>
                     <th>Manager</th>
                     {% for stage in stage_score_matrix.stages %}
-                      <th>Et {{ stage.stage_order }}</th>
+                      <th{% if stage.is_final_scoring %} class="stage-score-table__final-heading"{% endif %}>{{ stage.short_label or ("Et " ~ stage.stage_order) }}</th>
                     {% endfor %}
                     <th>Totaal</th>
                   </tr>
@@ -2217,7 +2217,7 @@
                         </div>
                       </td>
                       {% for stage_point in row.stage_points %}
-                        <td class="stage-score-table__cell{% if stage_point.is_stage_winner %} stage-score-table__cell--winner{% endif %}">
+                        <td class="stage-score-table__cell{% if stage_point.is_stage_winner %} stage-score-table__cell--winner{% endif %}{% if stage_point.is_final_scoring %} stage-score-table__cell--final{% endif %}">
                           <span class="stage-score-table__score-wrap">
                             <span class="stage-score-table__score{% if stage_point.points >= 400 %} stage-score-table__score--400{% elif stage_point.points >= 300 %} stage-score-table__score--300{% endif %}">{{ stage_point.points }}</span>
                             <span class="stage-score-table__icons">
@@ -2241,18 +2241,18 @@
                 {% for snapshot in stage_result_snapshots %}
                   <article class="stage-score-mobile-card">
                     <div class="stage-score-mobile-card__header">
-                      <span class="stage-score-mobile-card__rank">Et {{ snapshot.stage_order }}</span>
+                      <span class="stage-score-mobile-card__rank{% if snapshot.is_final_scoring %} stage-score-mobile-card__rank--final{% endif %}">{{ snapshot.short_label }}</span>
                       <div class="stage-score-mobile-card__main">
                         <div class="stage-score-mobile-card__name-row">
-                          <strong>Daguitslag</strong>
-                          {% if snapshot.winner_names %}
+                          <strong>{{ "Eindklassementpunten" if snapshot.is_final_scoring else "Daguitslag" }}</strong>
+                          {% if snapshot.winner_names and not snapshot.is_final_scoring %}
                             <span class="stage-score-mobile-card__leaders">
                               <span class="stage-score-table__icon stage-score-table__icon--win" aria-hidden="true">&#9733;</span>
                               <span>{{ snapshot.winner_names|join(", ") }}</span>
                             </span>
                           {% endif %}
                         </div>
-                        <span class="stage-score-mobile-card__total">Topscore {{ snapshot.winner_score }} pts</span>
+                        <span class="stage-score-mobile-card__total">{{ "Hoogste eindbonus" if snapshot.is_final_scoring else "Topscore" }} {{ snapshot.winner_score }} pts</span>
                       </div>
                     </div>
 
@@ -2376,6 +2376,12 @@
             if (!snapshots.length) {
               return;
             }
+
+            const snapshotLabel = (snapshot) => (
+              snapshot.is_final_scoring
+                ? "Eindklassement"
+                : `Etappe ${snapshot.stage_order}`
+            );
 
             const colors = {
               bgTop: "#021426",
@@ -2787,6 +2793,12 @@
               return;
             }
 
+            const snapshotLabel = (snapshot) => (
+              snapshot.is_final_scoring
+                ? "Eindklassement"
+                : `Etappe ${snapshot.stage_order}`
+            );
+
             const colors = {
               bgTop: "#021426",
               bgBottom: "#0a2c49",
@@ -3031,6 +3043,9 @@
             const buildThresholdScoreEntries = (threshold) => {
               const matches = [];
               snapshots.forEach((snapshot) => {
+                if (snapshot.is_final_scoring) {
+                  return;
+                }
                 const stageOrder = Number(snapshot.stage_order || 0);
                 const entries = Array.isArray(snapshot.entries) ? snapshot.entries : [];
 
@@ -3284,9 +3299,13 @@
               ctx.fillStyle = colors.white;
               ctx.font = `48px ${fontSerif}`;
               ctx.fillText(
-                isStandingsMode
-                  ? `Etappe ${snapshot.stage_order} | Stand na etappe`
-                  : `Etappe ${snapshot.stage_order} | Daguitslag`,
+                snapshot.is_final_scoring
+                  ? "Eindklassement | Bonuspunten"
+                  : (
+                    isStandingsMode
+                      ? `${snapshotLabel(snapshot)} | Stand na etappe`
+                      : `${snapshotLabel(snapshot)} | Daguitslag`
+                  ),
                 84,
                 138
               );
@@ -3296,9 +3315,13 @@
               ctx.fillText(subleagueName, 86, 170);
               ctx.font = `500 15px ${fontSans}`;
               ctx.fillText(
-                isStandingsMode
-                  ? "Subleague-stand direct na deze rit"
-                  : "Etappepunten plus tussenstand na deze rit",
+                snapshot.is_final_scoring
+                  ? "Eindklassement- en ploeggenootpunten plus definitieve stand"
+                  : (
+                    isStandingsMode
+                      ? "Subleague-stand direct na deze rit"
+                      : "Etappepunten plus tussenstand na deze rit"
+                  ),
                 86,
                 194
               );
@@ -3522,16 +3545,20 @@
 
               setButtonsDisabled(true);
               setStatus(
-                mode === "standings"
-                  ? "Stand-afbeelding wordt gemaakt..."
-                  : "Daguitslag-afbeelding wordt gemaakt..."
+                snapshot.is_final_scoring
+                  ? "Eindklassement-afbeelding wordt gemaakt..."
+                  : mode === "standings"
+                    ? "Stand-afbeelding wordt gemaakt..."
+                    : "Daguitslag-afbeelding wordt gemaakt..."
               );
 
               try {
                 const blob = await buildStageImageBlob(snapshot, mode);
-                const filename = mode === "standings"
-                  ? `scorito-etappe-${snapshot.stage_order}-stand.png`
-                  : `scorito-etappe-${snapshot.stage_order}-daguitslag.png`;
+                const filename = snapshot.is_final_scoring
+                  ? "scorito-eindklassement.png"
+                  : mode === "standings"
+                    ? `scorito-etappe-${snapshot.stage_order}-stand.png`
+                    : `scorito-etappe-${snapshot.stage_order}-daguitslag.png`;
 
                 if (navigator.clipboard && "ClipboardItem" in window) {
                   await navigator.clipboard.write([
@@ -3540,9 +3567,11 @@
                     })
                   ]);
                   setStatus(
-                    mode === "standings"
-                      ? `Stand na etappe ${snapshot.stage_order} staat nu op je klembord.`
-                      : `Daguitslag van etappe ${snapshot.stage_order} staat nu op je klembord.`,
+                    snapshot.is_final_scoring
+                      ? "Het eindklassement staat nu op je klembord."
+                      : mode === "standings"
+                        ? `Stand na etappe ${snapshot.stage_order} staat nu op je klembord.`
+                        : `Daguitslag van etappe ${snapshot.stage_order} staat nu op je klembord.`,
                     "success"
                   );
                 } else {

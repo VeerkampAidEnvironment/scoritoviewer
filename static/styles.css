@@ -2883,6 +2883,22 @@ img {
   background-image: linear-gradient(180deg, rgba(255, 216, 76, 0.08), transparent 55%);
 }
 
+.stage-score-table__final-heading {
+  color: #fff1b2;
+  box-shadow: inset 1px 0 rgba(255, 216, 76, 0.24);
+}
+
+.stage-score-table__cell--final {
+  background-image: linear-gradient(180deg, rgba(255, 216, 76, 0.12), rgba(255, 216, 76, 0.025));
+  box-shadow: inset 1px 0 rgba(255, 216, 76, 0.18);
+}
+
+.stage-score-table__cell--final .stage-score-table__score {
+  background: linear-gradient(135deg, rgba(255, 216, 76, 0.28), rgba(255, 122, 69, 0.14));
+  color: #fff4c2;
+  box-shadow: inset 0 0 0 1px rgba(255, 216, 76, 0.34);
+}
+
 .stage-score-table .standings-table__total {
   position: sticky;
   right: 0;
@@ -3764,6 +3780,12 @@ img {
     color: var(--white);
     font-size: 0.8rem;
     font-weight: 700;
+  }
+
+  .stage-score-mobile-card__rank--final {
+    background: linear-gradient(135deg, rgba(255, 216, 76, 0.28), rgba(255, 122, 69, 0.18));
+    color: #fff4c2;
+    box-shadow: inset 0 0 0 1px rgba(255, 216, 76, 0.3);
   }
 
   .stage-score-mobile-card__main {

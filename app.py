@@ -156,6 +156,7 @@ GAME_COMPLETION_CACHE: dict[str, tuple[float, bool]] = {}
 COMPLETED_GAME_KEYS: set[str] = set()
 GAME_COMPLETION_CACHE_TTL_SECONDS = 300
 HISTORIC_STAGE_RESULT_THRESHOLD = 21
+FINAL_SCORING_MARKET_ROUND_ID = -1
 PERSISTENT_CACHE_DIR = BASE_DIR / ".cache"
 HISTORIC_GAME_CACHE_DIR = PERSISTENT_CACHE_DIR / "historic_games"
 HISTORIC_GAME_SNAPSHOT_LOCK = threading.Lock()
@@ -4214,6 +4215,11 @@ def build_score_trend_chart(stage_score_matrix: dict) -> dict:
         {
             "market_round_id": stage_id,
             "stage_order": ordered_stages[index]["stage_order"],
+            "label": ordered_stages[index].get("short_label")
+            or f"Et {ordered_stages[index]['stage_order']}",
+            "is_final_scoring": bool(
+                ordered_stages[index].get("is_final_scoring")
+            ),
             "x": round(x_position(index), 2),
         }
         for index, stage_id in enumerate(stage_ids)
@@ -4287,6 +4293,96 @@ def build_score_trend_chart(stage_score_matrix: dict) -> dict:
     }
 
 
+def append_final_scoring_stage(
+    stage_score_matrix: dict,
+    final_standings: list[dict],
+) -> None:
+    stages = stage_score_matrix.get("stages", [])
+    rows = stage_score_matrix.get("rows", [])
+    if (
+        not stages
+        or not rows
+        or not final_standings
+        or any(stage.get("is_final_scoring") for stage in stages)
+    ):
+        return
+
+    standings_by_user_id = {
+        int(item.get("participant", {}).get("UserId") or 0): item
+        for item in final_standings
+    }
+    if not standings_by_user_id:
+        return
+
+    final_stage_order = (
+        max(int(stage.get("stage_order") or 0) for stage in stages) + 1
+    )
+    final_points_by_user_id: dict[int, int] = {}
+    final_total_by_user_id: dict[int, int] = {}
+
+    for row in rows:
+        user_id = int(row.get("participant", {}).get("UserId") or 0)
+        final_standing = standings_by_user_id.get(user_id)
+        if final_standing is None:
+            continue
+
+        stage_total = int(row.get("total_points") or 0)
+        official_total = int(final_standing.get("total_points") or stage_total)
+        final_points_by_user_id[user_id] = max(0, official_total - stage_total)
+        final_total_by_user_id[user_id] = max(stage_total, official_total)
+
+    if not final_points_by_user_id:
+        return
+
+    winner_score = max(final_points_by_user_id.values(), default=0)
+    leader_score = max(final_total_by_user_id.values(), default=0)
+    stages.append(
+        {
+            "market_round_id": FINAL_SCORING_MARKET_ROUND_ID,
+            "stage_order": final_stage_order,
+            "label": "Eindklassement",
+            "short_label": "Eind",
+            "is_final_scoring": True,
+            "winner_score": winner_score,
+        }
+    )
+
+    for row in rows:
+        user_id = int(row.get("participant", {}).get("UserId") or 0)
+        final_points = final_points_by_user_id.get(user_id, 0)
+        final_total = final_total_by_user_id.get(
+            user_id,
+            int(row.get("total_points") or 0),
+        )
+        row.setdefault("stage_points_by_round", {})[
+            FINAL_SCORING_MARKET_ROUND_ID
+        ] = final_points
+        row.setdefault("cumulative_points_by_round", {})[
+            FINAL_SCORING_MARKET_ROUND_ID
+        ] = final_total
+        row.setdefault("stage_points", []).append(
+            {
+                "market_round_id": FINAL_SCORING_MARKET_ROUND_ID,
+                "stage_order": final_stage_order,
+                "points": final_points,
+                "is_stage_winner": False,
+                "is_subleague_leader": final_total == leader_score,
+                "is_final_scoring": True,
+            }
+        )
+        row["total_points"] = final_total
+        final_standing = standings_by_user_id.get(user_id)
+        if final_standing and int(final_standing.get("rank") or 0) > 0:
+            row["rank"] = int(final_standing["rank"])
+
+    rows.sort(
+        key=lambda row: (
+            int(row.get("rank") or 10**9),
+            -int(row.get("total_points") or 0),
+        )
+    )
+
+
 def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
     stages = stage_score_matrix.get("stages", [])
     rows = stage_score_matrix.get("rows", [])
@@ -4299,7 +4395,8 @@ def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
 
     for stage in ordered_stages:
         market_round_id = int(stage.get("market_round_id") or 0)
-        if market_round_id <= 0:
+        is_final_scoring = bool(stage.get("is_final_scoring"))
+        if market_round_id <= 0 and not is_final_scoring:
             continue
 
         entries: list[dict] = []
@@ -4325,6 +4422,7 @@ def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
                     "cumulative_points": cumulative_points,
                     "is_stage_winner": bool(stage_meta and stage_meta.get("is_stage_winner")),
                     "is_subleague_leader": bool(stage_meta and stage_meta.get("is_subleague_leader")),
+                    "is_final_scoring": is_final_scoring,
                 }
             )
 
@@ -4383,6 +4481,10 @@ def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
             {
                 "market_round_id": market_round_id,
                 "stage_order": int(stage.get("stage_order") or 0),
+                "label": stage.get("label") or f"Etappe {stage.get('stage_order')}",
+                "short_label": stage.get("short_label")
+                or f"Et {stage.get('stage_order')}",
+                "is_final_scoring": is_final_scoring,
                 "winner_score": int(stage.get("winner_score") or 0),
                 "winner_names": winner_names,
                 "leader_names": leader_names,
@@ -4990,6 +5092,17 @@ def index():
                 projected_final_scores = projected_final_scores_future.result()
                 apply_manager_display_aliases_to_rows(projected_final_scores)
                 stage_score_matrix = stage_score_matrix_future.result()
+                if has_complete_grand_tour_results(selected_game, rounds):
+                    try:
+                        final_standings = client.build_subleague_final_standings(
+                            int(selected_subleague["Id"])
+                        )
+                        append_final_scoring_stage(
+                            stage_score_matrix,
+                            final_standings,
+                        )
+                    except ScoritoError:
+                        pass
                 apply_manager_display_aliases_to_stage_score_matrix(stage_score_matrix)
                 score_trend_chart = build_score_trend_chart(stage_score_matrix)
                 stage_result_snapshots = build_stage_result_snapshots(stage_score_matrix)
