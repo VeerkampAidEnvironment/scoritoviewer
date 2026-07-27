@@ -2721,6 +2721,18 @@ img {
   background: linear-gradient(135deg, rgba(255, 216, 76, 0.28), rgba(255, 255, 255, 0.08));
 }
 
+.stage-share-controls__button--overview {
+  border-color: rgba(255, 216, 76, 0.34);
+  background: linear-gradient(135deg, rgba(255, 216, 76, 0.2), rgba(255, 122, 69, 0.12));
+  color: #fff3bd;
+  box-shadow: inset 0 0 0 1px rgba(255, 216, 76, 0.06);
+}
+
+.stage-share-controls__button--overview:hover:not(:disabled) {
+  border-color: rgba(255, 216, 76, 0.56);
+  background: linear-gradient(135deg, rgba(255, 216, 76, 0.28), rgba(255, 122, 69, 0.17));
+}
+
 .stage-share-controls__button:disabled {
   opacity: 0.72;
   cursor: progress;

@@ -1531,7 +1531,7 @@
                 <h2>Beste team binnen budget voor {{ selected_game.label }}</h2>
               </div>
               <p>
-                Gebaseerd op de totale Scorito-punten per renner, het originele spelbudget en captainbonus.
+                Gebaseerd op de totale Scorito-punten per renner, het originele spelbudget en captainbonus. Maximaal vier renners per wielerploeg.
               </p>
             </div>
 
@@ -2172,6 +2172,9 @@
                   <button type="button" class="stage-share-controls__button" data-copy-stage-standing-image>
                     Kopieer stand
                   </button>
+                  <button type="button" class="stage-share-controls__button stage-share-controls__button--overview" data-copy-stage-overview-image>
+                    Kopieer compleet overzicht
+                  </button>
                   <button type="button" class="stage-share-controls__button" data-copy-400-list-image>
                     Kopieer 400+-afbeelding
                   </button>
@@ -2764,6 +2767,7 @@
             const selectElement = rootElement.querySelector("[data-stage-image-select]");
             const dayButtonElement = rootElement.querySelector("[data-copy-stage-day-image]");
             const standingButtonElement = rootElement.querySelector("[data-copy-stage-standing-image]");
+            const overviewButtonElement = rootElement.querySelector("[data-copy-stage-overview-image]");
             const list400ButtonElement = rootElement.querySelector("[data-copy-400-list]");
             const list300ButtonElement = rootElement.querySelector("[data-copy-300-list]");
             const list400ImageButtonElement = rootElement.querySelector("[data-copy-400-list-image]");
@@ -2773,6 +2777,7 @@
               !selectElement
               || !dayButtonElement
               || !standingButtonElement
+              || !overviewButtonElement
               || !statusElement
             ) {
               return;
@@ -2828,6 +2833,7 @@
             const setButtonsDisabled = (disabled) => {
               dayButtonElement.disabled = disabled;
               standingButtonElement.disabled = disabled;
+              overviewButtonElement.disabled = disabled;
               if (list400ButtonElement) {
                 list400ButtonElement.disabled = disabled;
               }
@@ -3242,6 +3248,305 @@
               return canvasToBlob(canvas);
             };
 
+            const buildStageOverviewImageBlob = async () => {
+              if (document.fonts && document.fonts.ready) {
+                await document.fonts.ready;
+              }
+
+              const finalSnapshot = snapshots.find((snapshot) => snapshot.is_final_scoring)
+                || snapshots[snapshots.length - 1];
+              const finalEntries = buildRankedEntries(
+                Array.isArray(finalSnapshot.entries) ? finalSnapshot.entries : [],
+                "standings"
+              );
+              if (!finalEntries.length) {
+                throw new Error("Er zijn geen managers voor het complete overzicht.");
+              }
+
+              const rankWidth = 74;
+              const managerWidth = 330;
+              const stageWidth = 82;
+              const totalWidth = 132;
+              const tableX = 66;
+              const tableY = 220;
+              const tableWidth = rankWidth
+                + managerWidth
+                + (snapshots.length * stageWidth)
+                + totalWidth;
+              const width = tableWidth + (tableX * 2);
+              const rowHeight = 58;
+              const tableHeaderHeight = 48;
+              const footerHeight = 76;
+              const height = tableY
+                + tableHeaderHeight
+                + (finalEntries.length * rowHeight)
+                + footerHeight;
+              const scale = 2;
+
+              const canvas = document.createElement("canvas");
+              canvas.width = width * scale;
+              canvas.height = height * scale;
+              const ctx = canvas.getContext("2d");
+              ctx.scale(scale, scale);
+
+              const drawYellowJersey = (x, y, size = 14) => {
+                ctx.save();
+                ctx.fillStyle = "#ffd84c";
+                ctx.strokeStyle = "rgba(255, 244, 194, 0.8)";
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x + (size * 0.22), y);
+                ctx.lineTo(x + (size * 0.4), y);
+                ctx.lineTo(x + (size * 0.5), y + (size * 0.18));
+                ctx.lineTo(x + (size * 0.6), y);
+                ctx.lineTo(x + (size * 0.78), y);
+                ctx.lineTo(x + size, y + (size * 0.26));
+                ctx.lineTo(x + (size * 0.84), y + (size * 0.46));
+                ctx.lineTo(x + (size * 0.84), y + size);
+                ctx.lineTo(x + (size * 0.16), y + size);
+                ctx.lineTo(x + (size * 0.16), y + (size * 0.46));
+                ctx.lineTo(x, y + (size * 0.26));
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+              };
+
+              const backgroundGradient = ctx.createLinearGradient(0, 0, 0, height);
+              backgroundGradient.addColorStop(0, colors.bgTop);
+              backgroundGradient.addColorStop(1, colors.bgBottom);
+              ctx.fillStyle = backgroundGradient;
+              ctx.fillRect(0, 0, width, height);
+
+              ctx.globalAlpha = 0.15;
+              ctx.fillStyle = colors.yellow;
+              ctx.beginPath();
+              ctx.arc(130, 82, 124, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = colors.blue;
+              ctx.beginPath();
+              ctx.arc(width - 150, 104, 150, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.globalAlpha = 1;
+
+              fillRoundedRect(
+                ctx,
+                26,
+                22,
+                width - 52,
+                height - 44,
+                30,
+                colors.card,
+                colors.line
+              );
+
+              ctx.fillStyle = colors.yellow;
+              ctx.font = `700 14px ${fontSans}`;
+              ctx.textAlign = "left";
+              ctx.textBaseline = "alphabetic";
+              ctx.fillText("SCORITO SUBLEAGUE", tableX + 10, 72);
+
+              ctx.fillStyle = colors.white;
+              ctx.font = `52px ${fontSerif}`;
+              ctx.fillText("Compleet etappeoverzicht", tableX + 8, 126);
+
+              ctx.fillStyle = colors.soft;
+              ctx.font = `500 20px ${fontSans}`;
+              ctx.fillText(subleagueName, tableX + 10, 160);
+              ctx.font = `500 15px ${fontSans}`;
+              ctx.fillText(
+                finalSnapshot.is_final_scoring
+                  ? "Alle etappes, eindklassement- en ploeggenootpunten en de definitieve stand"
+                  : `Alle etappes en de stand na etappe ${finalSnapshot.stage_order}`,
+                tableX + 10,
+                187
+              );
+
+              const legendY = 166;
+              const leaderLegendX = width - tableX - 148;
+              drawPill(ctx, {
+                x: leaderLegendX,
+                y: legendY,
+                text: "Gele trui",
+                background: "rgba(255, 216, 76, 0.17)",
+                color: "#fff4c2",
+                border: "rgba(255, 216, 76, 0.25)",
+                height: 30
+              });
+              drawYellowJersey(
+                leaderLegendX + 12,
+                legendY + 8,
+                13
+              );
+              drawPill(ctx, {
+                x: leaderLegendX - 170,
+                y: legendY,
+                text: "★ Dagwinnaar",
+                background: "rgba(255, 216, 76, 0.12)",
+                color: "#ffe693",
+                border: "rgba(255, 216, 76, 0.2)",
+                height: 30
+              });
+
+              fillRoundedRect(
+                ctx,
+                tableX,
+                tableY,
+                tableWidth,
+                tableHeaderHeight,
+                14,
+                "rgba(255, 255, 255, 0.08)",
+                "rgba(255, 255, 255, 0.1)"
+              );
+
+              const stageStartX = tableX + rankWidth + managerWidth;
+              const totalStartX = stageStartX + (snapshots.length * stageWidth);
+              ctx.font = `700 13px ${fontSans}`;
+              ctx.fillStyle = colors.soft;
+              ctx.textBaseline = "middle";
+              ctx.textAlign = "left";
+              ctx.fillText("Plek", tableX + 18, tableY + (tableHeaderHeight / 2));
+              ctx.fillText(
+                "Manager",
+                tableX + rankWidth + 18,
+                tableY + (tableHeaderHeight / 2)
+              );
+
+              snapshots.forEach((snapshot, index) => {
+                const columnX = stageStartX + (index * stageWidth);
+                if (snapshot.is_final_scoring) {
+                  ctx.fillStyle = "rgba(255, 216, 76, 0.14)";
+                  ctx.fillRect(columnX, tableY, stageWidth, tableHeaderHeight);
+                }
+                ctx.fillStyle = snapshot.is_final_scoring ? "#fff1b2" : colors.soft;
+                ctx.textAlign = "center";
+                ctx.fillText(
+                  snapshot.short_label || `Et ${snapshot.stage_order}`,
+                  columnX + (stageWidth / 2),
+                  tableY + (tableHeaderHeight / 2)
+                );
+              });
+
+              ctx.fillStyle = colors.yellow;
+              ctx.textAlign = "center";
+              ctx.fillText(
+                finalSnapshot.is_final_scoring ? "Eindscore" : "Totaal",
+                totalStartX + (totalWidth / 2),
+                tableY + (tableHeaderHeight / 2)
+              );
+
+              const entriesBySnapshot = snapshots.map((snapshot) => new Map(
+                (Array.isArray(snapshot.entries) ? snapshot.entries : []).map((entry) => [
+                  Number(entry.user_id || 0),
+                  entry
+                ])
+              ));
+
+              finalEntries.forEach((manager, rowIndex) => {
+                const rowY = tableY + tableHeaderHeight + (rowIndex * rowHeight);
+                fillRoundedRect(
+                  ctx,
+                  tableX,
+                  rowY + 3,
+                  tableWidth,
+                  rowHeight - 6,
+                  12,
+                  rowIndex % 2 === 0 ? colors.rowBase : colors.rowAlt
+                );
+
+                ctx.fillStyle = colors.white;
+                ctx.font = `700 18px ${fontSans}`;
+                ctx.textAlign = "left";
+                ctx.fillText(
+                  String(manager.share_rank || rowIndex + 1),
+                  tableX + 18,
+                  rowY + (rowHeight / 2) + 1
+                );
+                ctx.font = `700 19px ${fontSans}`;
+                ctx.fillText(
+                  fitText(
+                    ctx,
+                    manager.username || manager.name || "Onbekend",
+                    managerWidth - 36
+                  ),
+                  tableX + rankWidth + 18,
+                  rowY + (rowHeight / 2) + 1
+                );
+
+                entriesBySnapshot.forEach((entriesByUserId, stageIndex) => {
+                  const entry = entriesByUserId.get(Number(manager.user_id || 0));
+                  const points = Number(entry?.stage_points || 0);
+                  const columnX = stageStartX + (stageIndex * stageWidth);
+                  const isFinalScoring = Boolean(snapshots[stageIndex].is_final_scoring);
+                  if (isFinalScoring) {
+                    ctx.fillStyle = "rgba(255, 216, 76, 0.08)";
+                    ctx.fillRect(columnX, rowY + 3, stageWidth, rowHeight - 6);
+                  }
+                  ctx.fillStyle = points >= 400
+                    ? "#fff1a8"
+                    : points >= 300
+                      ? "#d9efff"
+                      : colors.white;
+                  ctx.font = `${points >= 300 ? "700" : "600"} 15px ${fontSans}`;
+                  ctx.textAlign = "center";
+                  ctx.fillText(
+                    String(points),
+                    columnX + (stageWidth / 2),
+                    rowY + (rowHeight / 2) + 1
+                  );
+                  if (entry?.is_stage_winner) {
+                    ctx.fillStyle = "#ffe693";
+                    ctx.font = `700 13px ${fontSans}`;
+                    ctx.textAlign = "center";
+                    ctx.fillText(
+                      "★",
+                      columnX + stageWidth - 13,
+                      rowY + 17
+                    );
+                  }
+                  if (entry?.is_subleague_leader) {
+                    drawYellowJersey(
+                      columnX + stageWidth - 20,
+                      rowY + rowHeight - 22,
+                      11
+                    );
+                  }
+                });
+
+                ctx.fillStyle = "#fff4c2";
+                ctx.font = `700 19px ${fontSans}`;
+                ctx.textAlign = "center";
+                ctx.fillText(
+                  String(Number(manager.cumulative_points || 0)),
+                  totalStartX + (totalWidth / 2),
+                  rowY + (rowHeight / 2) + 1
+                );
+              });
+
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(tableX + 8, height - 62);
+              ctx.lineTo(width - tableX - 8, height - 62);
+              ctx.stroke();
+              ctx.fillStyle = colors.soft;
+              ctx.font = `500 13px ${fontSans}`;
+              ctx.textAlign = "left";
+              ctx.fillText(
+                "Gegenereerd vanuit het Scorito subleague-overzicht",
+                tableX + 10,
+                height - 38
+              );
+              ctx.textAlign = "right";
+              ctx.fillText(
+                new Date().toLocaleDateString("nl-NL"),
+                width - tableX - 10,
+                height - 38
+              );
+
+              return canvasToBlob(canvas);
+            };
+
             const buildStageImageBlob = async (snapshot, mode) => {
               if (document.fonts && document.fonts.ready) {
                 await document.fonts.ready;
@@ -3626,8 +3931,45 @@
               }
             };
 
+            const copyStageOverviewImage = async () => {
+              setButtonsDisabled(true);
+              setStatus("Compleet etappeoverzicht wordt gemaakt...");
+
+              try {
+                const blob = await buildStageOverviewImageBlob();
+                const filename = "scorito-compleet-etappeoverzicht.png";
+                if (navigator.clipboard && "ClipboardItem" in window) {
+                  await navigator.clipboard.write([
+                    new ClipboardItem({
+                      "image/png": blob
+                    })
+                  ]);
+                  setStatus(
+                    "Het complete etappeoverzicht staat nu op je klembord.",
+                    "success"
+                  );
+                } else {
+                  downloadBlob(blob, filename);
+                  setStatus(
+                    "Klembordkopie wordt hier niet ondersteund, PNG is gedownload.",
+                    "warning"
+                  );
+                }
+              } catch (error) {
+                setStatus(
+                  error && error.message
+                    ? error.message
+                    : "Kopieren van het complete overzicht is mislukt.",
+                  "error"
+                );
+              } finally {
+                setButtonsDisabled(false);
+              }
+            };
+
             dayButtonElement.addEventListener("click", () => copySelectedStageImage("day"));
             standingButtonElement.addEventListener("click", () => copySelectedStageImage("standings"));
+            overviewButtonElement.addEventListener("click", copyStageOverviewImage);
             if (list400ButtonElement) {
               list400ButtonElement.addEventListener("click", () => copyThresholdScoreList(400));
             }
