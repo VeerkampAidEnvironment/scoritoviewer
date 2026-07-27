@@ -151,6 +151,11 @@ RIDER_HISTORY_CACHE_LOCK = threading.Lock()
 RIDER_HISTORY_CACHE: dict[str, tuple[float, dict]] = {}
 RIDER_HISTORY_CACHE_TTL_SECONDS = 600
 RIDER_HISTORY_DEFAULT_LIST_LIMIT = 100
+GAME_COMPLETION_CACHE_LOCK = threading.Lock()
+GAME_COMPLETION_CACHE: dict[str, tuple[float, bool]] = {}
+COMPLETED_GAME_KEYS: set[str] = set()
+GAME_COMPLETION_CACHE_TTL_SECONDS = 300
+HISTORIC_STAGE_RESULT_THRESHOLD = 21
 PERSISTENT_CACHE_DIR = BASE_DIR / ".cache"
 HISTORIC_GAME_CACHE_DIR = PERSISTENT_CACHE_DIR / "historic_games"
 HISTORIC_GAME_SNAPSHOT_LOCK = threading.Lock()
@@ -524,7 +529,12 @@ def get_default_game_key() -> str:
     return str(GAME_OPTIONS[0]["key"])
 
 
-def choose_game(requested_game_key: str, *, current_page: str = "live") -> dict:
+def choose_game(
+    requested_game_key: str,
+    *,
+    current_page: str = "live",
+    completed_game_keys: set[str] | None = None,
+) -> dict:
     normalized_key = requested_game_key.strip().lower()
     if current_page in {"history", "riders"}:
         selected_game = GAME_OPTIONS_BY_KEY.get(normalized_key)
@@ -532,7 +542,10 @@ def choose_game(requested_game_key: str, *, current_page: str = "live") -> dict:
             return selected_game
         return GAME_OPTIONS_BY_KEY[get_default_game_key()]
 
-    page_games = build_page_game_options(current_page)
+    page_games = build_page_game_options(
+        current_page,
+        completed_game_keys=completed_game_keys,
+    )
     page_games_by_key = {str(game["key"]): game for game in page_games}
     selected_game = page_games_by_key.get(normalized_key)
     if selected_game is not None:
@@ -1060,6 +1073,72 @@ def classify_game_page(game: dict) -> str:
     return "archive"
 
 
+def has_complete_grand_tour_results(game: dict, rounds: list[dict]) -> bool:
+    event_id, _year = parse_game_identity(game)
+    if event_id not in {"giro", "tdf", "vuelta"}:
+        return False
+
+    finished_stage_orders = {
+        int(round_item.get("StageOrder") or 0)
+        for round_item in rounds
+        if int(round_item.get("StageStatus", -1)) == 2
+        and int(round_item.get("StageOrder") or 0) > 0
+    }
+    return len(finished_stage_orders) >= HISTORIC_STAGE_RESULT_THRESHOLD
+
+
+def remember_game_completion(game: dict, rounds: list[dict]) -> bool:
+    game_key = str(game.get("key") or "")
+    is_complete = has_complete_grand_tour_results(game, rounds)
+    with GAME_COMPLETION_CACHE_LOCK:
+        if is_complete:
+            COMPLETED_GAME_KEYS.add(game_key)
+        GAME_COMPLETION_CACHE[game_key] = (
+            time.time() + GAME_COMPLETION_CACHE_TTL_SECONDS,
+            is_complete,
+        )
+    return is_complete
+
+
+def get_completed_game_keys(client: ScoritoClient) -> set[str]:
+    now = time.time()
+    candidates = [
+        game
+        for game in GAME_OPTIONS
+        if classify_game_page(game) == "live"
+        and parse_game_identity(game)[0] in {"giro", "tdf", "vuelta"}
+    ]
+
+    for game in candidates:
+        game_key = str(game.get("key") or "")
+        with GAME_COMPLETION_CACHE_LOCK:
+            if game_key in COMPLETED_GAME_KEYS:
+                continue
+            cached_entry = GAME_COMPLETION_CACHE.get(game_key)
+            if cached_entry and cached_entry[0] > now:
+                continue
+
+        try:
+            rounds = get_historic_game_rounds(client, game)
+        except ScoritoError:
+            continue
+        remember_game_completion(game, rounds)
+
+    with GAME_COMPLETION_CACHE_LOCK:
+        return set(COMPLETED_GAME_KEYS)
+
+
+def is_game_available_in_archive(
+    game: dict,
+    *,
+    completed_game_keys: set[str] | None = None,
+) -> bool:
+    return (
+        classify_game_page(game) == "archive"
+        or str(game.get("key") or "") in (completed_game_keys or set())
+    )
+
+
 def supports_historic_rider_data(game: dict) -> bool:
     event_id, _year = parse_game_identity(game)
     return event_id in {"klassiekerspel", "giro", "tdf", "vuelta"}
@@ -1102,12 +1181,29 @@ def get_historic_round_rider_scores(
     )
 
 
-def build_page_game_options(current_page: str) -> list[dict]:
+def build_page_game_options(
+    current_page: str,
+    *,
+    completed_game_keys: set[str] | None = None,
+) -> list[dict]:
     if current_page in {"history", "riders"}:
         return list(GAME_OPTIONS)
 
-    target_page = "archive" if current_page == "archive" else "live"
-    page_games = [game for game in GAME_OPTIONS if classify_game_page(game) == target_page]
+    if current_page == "archive":
+        page_games = [
+            game
+            for game in GAME_OPTIONS
+            if is_game_available_in_archive(
+                game,
+                completed_game_keys=completed_game_keys,
+            )
+        ]
+    else:
+        page_games = [
+            game
+            for game in GAME_OPTIONS
+            if classify_game_page(game) == "live"
+        ]
     return page_games or list(GAME_OPTIONS)
 
 
@@ -4106,10 +4202,19 @@ def index():
     history_margin_view = choose_history_margin_view(requested_history_margin_view)
     history_user_id = choose_history_user_id(requested_history_user_id)
     rider_history_view = choose_rider_history_view(requested_rider_history_view)
-    page_games = build_page_game_options(current_page)
+    completed_game_keys: set[str] = set()
+    try:
+        completed_game_keys = get_completed_game_keys(get_client())
+    except (RuntimeError, ScoritoError):
+        pass
+    page_games = build_page_game_options(
+        current_page,
+        completed_game_keys=completed_game_keys,
+    )
     selected_game = choose_game(
         requested_game_key or get_default_game_key(),
         current_page=current_page,
+        completed_game_keys=completed_game_keys,
     )
     selected_game_is_classics = is_classics_game(selected_game)
     market_id = int(selected_game["market_id"])
@@ -4354,7 +4459,10 @@ def index():
             context["rider_history_cumulative_rows"] = rider_snapshot["cumulative_rows"]
             return render_template("index.html", **context)
 
-        if current_page == "archive" and classify_game_page(selected_game) == "archive":
+        if current_page == "archive" and is_game_available_in_archive(
+            selected_game,
+            completed_game_keys=completed_game_keys,
+        ):
             snapshot = get_historic_game_snapshot(client, selected_game)
             rounds = snapshot.get("rounds", [])
             selected_round = choose_archive_round(rounds, requested_market_round_id)
@@ -4442,6 +4550,8 @@ def index():
             )
             rounds = rounds_future.result()
             participants = participants_future.result()
+        if remember_game_completion(selected_game, rounds):
+            completed_game_keys.add(str(selected_game.get("key") or ""))
 
         classification_round = choose_latest_finished_round(rounds)
         if uses_archive_only_flow(selected_game):
