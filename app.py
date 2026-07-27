@@ -1090,13 +1090,21 @@ def has_complete_grand_tour_results(game: dict, rounds: list[dict]) -> bool:
 def remember_game_completion(game: dict, rounds: list[dict]) -> bool:
     game_key = str(game.get("key") or "")
     is_complete = has_complete_grand_tour_results(game, rounds)
+    became_complete = False
     with GAME_COMPLETION_CACHE_LOCK:
         if is_complete:
+            became_complete = game_key not in COMPLETED_GAME_KEYS
             COMPLETED_GAME_KEYS.add(game_key)
         GAME_COMPLETION_CACHE[game_key] = (
             time.time() + GAME_COMPLETION_CACHE_TTL_SECONDS,
             is_complete,
         )
+
+    if became_complete:
+        with HISTORY_OVERVIEW_CACHE_LOCK:
+            HISTORY_OVERVIEW_CACHE.clear()
+        with RIDER_HISTORY_CACHE_LOCK:
+            RIDER_HISTORY_CACHE.clear()
     return is_complete
 
 
@@ -1246,6 +1254,65 @@ def normalize_history_standings(
     return normalized_rows
 
 
+def build_completed_grand_tour_standings(
+    client: ScoritoClient,
+    *,
+    game: dict,
+    rounds: list[dict],
+) -> list[dict]:
+    market_id = int(game["market_id"])
+    subleague_id = int(game["subleague_id"])
+    try:
+        standings = client.build_subleague_final_standings(subleague_id)
+        if standings:
+            return standings
+    except ScoritoError:
+        pass
+
+    try:
+        return client.build_archive_standings(
+            market_id=market_id,
+            subleague_id=subleague_id,
+        )
+    except ScoritoError:
+        pass
+
+    finished_rounds = [
+        item
+        for item in sorted(rounds, key=lambda round_item: int(round_item.get("StageOrder") or 0))
+        if int(item.get("StageStatus", -1)) == 2
+    ]
+    finished_round_ids = [int(item["MarketRoundId"]) for item in finished_rounds]
+    finished_round_stage_orders = {
+        int(item["MarketRoundId"]): int(item.get("StageOrder") or 0)
+        for item in finished_rounds
+    }
+    stage_standings = client.build_subleague_standings(
+        market_id=market_id,
+        subleague_id=subleague_id,
+        finished_market_round_ids=finished_round_ids,
+        finished_round_stage_orders=finished_round_stage_orders,
+    )
+    final_scores = client.build_projected_final_classification_scores(
+        market_id=market_id,
+        subleague_id=subleague_id,
+    )
+    merge_current_standings_into_projected_final_scores(
+        final_scores,
+        stage_standings,
+    )
+    return [
+        {
+            "participant": row["participant"],
+            "rank": int(row.get("rank") or index),
+            "total_points": int(row.get("total_projected_points") or 0),
+            "market_percentage": None,
+            "is_current_user": bool(row.get("is_current_user")),
+        }
+        for index, row in enumerate(final_scores, start=1)
+    ]
+
+
 def build_game_podium_rows(standings: list[dict], *, limit: int = 3) -> list[dict]:
     podium: list[dict] = []
     for entry in standings[:limit]:
@@ -1353,7 +1420,10 @@ def load_game_overview_card(client: ScoritoClient, game: dict) -> dict:
                 subleague_detail = None
 
         latest_finished_round = choose_latest_finished_round(rounds)
-        if uses_archive_only_flow(game):
+        has_final_scoring = has_complete_grand_tour_results(game, rounds)
+        if has_final_scoring:
+            is_archive_game = True
+        elif uses_archive_only_flow(game):
             is_archive_game = True
         else:
             archive_probe = probe_archive_game(
@@ -1364,7 +1434,13 @@ def load_game_overview_card(client: ScoritoClient, game: dict) -> dict:
             )
             is_archive_game = bool(archive_probe["is_archive"])
 
-        if is_archive_game:
+        if has_final_scoring:
+            standings = build_completed_grand_tour_standings(
+                client,
+                game=game,
+                rounds=rounds,
+            )
+        elif is_archive_game:
             standings = client.build_archive_standings(
                 market_id=market_id,
                 subleague_id=subleague_id,
@@ -1419,6 +1495,19 @@ def build_overview_podiums(
     overview_cards_by_key: dict[str, dict] = {}
     if selected_game_key and selected_game_card:
         overview_cards_by_key[str(selected_game_key)] = selected_game_card
+
+    current_grand_tours = [
+        game
+        for game in GAME_OPTIONS
+        if str(game["key"]) not in overview_cards_by_key
+        and classify_game_page(game) == "live"
+        and parse_game_identity(game)[0] in {"giro", "tdf", "vuelta"}
+    ]
+    for game in current_grand_tours:
+        overview_cards_by_key[str(game["key"])] = load_game_overview_card(
+            client,
+            game,
+        )
 
     remaining_games = [
         game for game in GAME_OPTIONS if str(game["key"]) not in overview_cards_by_key
@@ -1476,6 +1565,8 @@ def get_history_overview_snapshot(client: ScoritoClient) -> dict:
 def load_rider_history_rows_for_game(client: ScoritoClient, game: dict) -> list[dict]:
     event_id, year = parse_game_identity(game)
     page = classify_game_page(game)
+    game_key = str(game.get("key") or "")
+    is_completed_grand_tour = game_key in get_completed_game_keys(client)
 
     rider_rows: list = []
     if page == "archive":
@@ -1488,6 +1579,12 @@ def load_rider_history_rows_for_game(client: ScoritoClient, game: dict) -> list[
             rider_rows = get_historic_total_rider_scores(client, game)
         except Exception:
             return []
+
+    if rider_rows and is_completed_grand_tour:
+        try:
+            rider_rows = add_final_scoring_to_rider_scores(client, game, rider_rows)
+        except Exception:
+            pass
 
     rows: list[dict] = []
     for rider in rider_rows:
@@ -1547,11 +1644,23 @@ def build_rider_history_snapshot(client: ScoritoClient) -> dict:
             return copy.deepcopy(cached_entry[1])
 
     performance_rows: list[dict] = []
-    worker_count = max(1, min(4, len(GAME_OPTIONS)))
+    current_grand_tours = [
+        game
+        for game in GAME_OPTIONS
+        if classify_game_page(game) == "live"
+        and parse_game_identity(game)[0] in {"giro", "tdf", "vuelta"}
+    ]
+    for game in current_grand_tours:
+        performance_rows.extend(load_rider_history_rows_for_game(client, game))
+
+    remaining_games = [
+        game for game in GAME_OPTIONS if game not in current_grand_tours
+    ]
+    worker_count = max(1, min(4, len(remaining_games)))
     with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
         futures = [
             executor.submit(load_rider_history_rows_for_game, client, game)
-            for game in GAME_OPTIONS
+            for game in remaining_games
         ]
         for future in concurrent.futures.as_completed(futures):
             performance_rows.extend(future.result())
@@ -2709,6 +2818,87 @@ def serialize_archive_rider(rider) -> dict:
     }
 
 
+def final_scoring_points_by_rider(
+    client: ScoritoClient,
+    market_id: int,
+) -> dict[int, int]:
+    return {
+        int(rider_id): ScoritoClient._calculate_points(points_collection)
+        for rider_id, points_collection in (
+            client.get_rider_final_classification_points(market_id).items()
+        )
+    }
+
+
+def add_final_scoring_to_rider_scores(
+    client: ScoritoClient,
+    game: dict,
+    rider_scores: list,
+) -> list[dict]:
+    market_id = int(game["market_id"])
+    published_final_points = final_scoring_points_by_rider(client, market_id)
+    if published_final_points:
+        rows = [serialize_archive_rider(rider) for rider in rider_scores]
+        for row in rows:
+            final_points = int(
+                published_final_points.get(int(row.get("rider_id") or 0), 0)
+            )
+            row["display_points"] = int(row.get("display_points") or 0) + final_points
+            row["display_base_points"] = (
+                int(row.get("display_base_points") or 0) + final_points
+            )
+            row["final_scoring_points"] = final_points
+        rows.sort(
+            key=lambda row: (
+                -int(row.get("display_base_points") or 0),
+                str(row.get("name_short") or "").lower(),
+            )
+        )
+        return rows
+
+    projected_snapshot = client.get_projected_final_scoring_snapshot(
+        market_id
+    )
+    rider_final_points = {
+        int(rider_id): int(points or 0)
+        for rider_id, points in dict(
+            projected_snapshot.get("rider_final_points", {})
+        ).items()
+    }
+    teammate_bonus_rules = [
+        dict(rule)
+        for rule in projected_snapshot.get("teammate_bonus_rules", [])
+    ]
+
+    enriched_rows: list[dict] = []
+    for rider in rider_scores:
+        row = serialize_archive_rider(rider)
+        rider_id = int(row.get("rider_id") or 0)
+        team_id = int(row.get("team_id") or 0)
+        teammate_bonus = sum(
+            int(rule.get("points") or 0)
+            for rule in teammate_bonus_rules
+            if team_id > 0
+            and team_id == int(rule.get("winner_team_id") or 0)
+            and rider_id != int(rule.get("winner_rider_id") or 0)
+        )
+        final_points = int(rider_final_points.get(rider_id, 0)) + teammate_bonus
+        row["display_points"] = int(row.get("display_points") or 0) + final_points
+        row["display_base_points"] = (
+            int(row.get("display_base_points") or 0) + final_points
+        )
+        row["final_scoring_points"] = final_points
+        enriched_rows.append(row)
+
+    enriched_rows.sort(
+        key=lambda row: (
+            -int(row.get("display_base_points") or 0),
+            str(row.get("name_short") or "").lower(),
+        )
+    )
+    return enriched_rows
+
+
 def serialize_archive_perfect_team(perfect_team: dict) -> dict:
     return {
         **perfect_team,
@@ -2743,6 +2933,15 @@ def read_historic_game_snapshot(game: dict) -> dict | None:
     if (
         is_classics_game(game)
         and snapshot.get("rider_data_source") != "cyclingteammanager-v2"
+    ):
+        return None
+    if (
+        classify_game_page(game) == "live"
+        and has_complete_grand_tour_results(game, snapshot.get("rounds", []))
+        and (
+            not snapshot.get("includes_final_scoring")
+            or snapshot.get("rider_final_scoring_source") != "points-market"
+        )
     ):
         return None
 
@@ -2789,17 +2988,41 @@ def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
         )
 
         rounds = rounds_future.result()
-        archive_standings = standings_future.result()
+        try:
+            archive_standings = standings_future.result()
+        except Exception:
+            if has_complete_grand_tour_results(game, rounds):
+                archive_standings = []
+            else:
+                raise
         archive_total_rider_scores = totals_future.result() if totals_future else []
+        perfect_team_total_rider_scores = list(archive_total_rider_scores)
         try:
             subleague_detail = subleague_detail_future.result()
         except Exception:
             subleague_detail = None
 
+    includes_final_scoring = has_complete_grand_tour_results(game, rounds)
+    if includes_final_scoring:
+        archive_standings = build_completed_grand_tour_standings(
+            client,
+            game=game,
+            rounds=rounds,
+        )
+        archive_total_rider_scores = add_final_scoring_to_rider_scores(
+            client,
+            game,
+            archive_total_rider_scores,
+        )
+
     apply_manager_display_aliases_to_rows(archive_standings)
     serialized_total_rider_scores = [
         serialize_archive_rider(rider)
         for rider in archive_total_rider_scores
+    ]
+    serialized_perfect_team_rider_scores = [
+        serialize_archive_rider(rider)
+        for rider in perfect_team_total_rider_scores
     ]
 
     archive_stage_points_by_round: dict[str, list[dict]] = {}
@@ -2848,28 +3071,22 @@ def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
     if include_rider_data and not is_classics:
         try:
             market_enriched = client.get_market_enriched(market_id)
-            projected_final_snapshot = client.get_projected_final_scoring_snapshot(market_id)
             _ordered_round_ids, stage_total_points_by_rider_id, captain_stage_points_by_rider_id = (
                 build_archive_stage_points_maps_by_rider_id(
                     client.get_market_round_points(market_id)
                 )
             )
             archive_perfect_team = build_archive_perfect_team(
-                serialized_total_rider_scores,
+                serialized_perfect_team_rider_scores,
                 budget=int(market_enriched.get("Budget") or 0),
                 captain_factor=int(market_enriched.get("CaptainFactor") or 2),
                 stage_total_points_by_rider_id=stage_total_points_by_rider_id,
                 captain_stage_points_by_rider_id=captain_stage_points_by_rider_id,
-                final_individual_points_by_rider_id={
-                    int(rider_id): int(points or 0)
-                    for rider_id, points in dict(
-                        projected_final_snapshot.get("rider_final_points", {})
-                    ).items()
-                },
-                teammate_bonus_rules=[
-                    dict(rule)
-                    for rule in projected_final_snapshot.get("teammate_bonus_rules", [])
-                ],
+                final_individual_points_by_rider_id=final_scoring_points_by_rider(
+                    client,
+                    market_id,
+                ),
+                teammate_bonus_rules=[],
                 team_size=PERFECT_TEAM_SIZE,
             )
         except Exception:
@@ -2881,6 +3098,10 @@ def build_historic_game_snapshot(client: ScoritoClient, game: dict) -> dict:
         "game_key": str(game["key"]),
         "market_id": market_id,
         "subleague_id": subleague_id,
+        "includes_final_scoring": includes_final_scoring,
+        "rider_final_scoring_source": (
+            "points-market" if includes_final_scoring else None
+        ),
         "rider_data_source": (
             "cyclingteammanager-v2"
             if is_classics

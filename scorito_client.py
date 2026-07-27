@@ -333,6 +333,18 @@ class ScoritoClient:
             loader=lambda: self._load_market_round_points(market_id),
         )
 
+    def get_rider_final_classification_points(
+        self,
+        market_id: int,
+    ) -> dict[int, list[dict]]:
+        return self._cached_value(
+            ("rider_final_classification_points", market_id),
+            ttl_seconds=1800,
+            loader=lambda: self._load_rider_final_classification_points(
+                market_id
+            ),
+        )
+
     def get_classics_market_round_points(
         self,
         market_id: int,
@@ -378,6 +390,10 @@ class ScoritoClient:
         return None
 
     def get_total_user_score(self, market_id: int, user_id: int) -> int:
+        current_user_id = self.current_user_id
+        score_path = f"scoreblock/totaluserscore/{market_id}"
+        if user_id != current_user_id:
+            score_path = f"{score_path}/{user_id}"
         return self._cached_value(
             ("total_user_score", market_id, user_id),
             ttl_seconds=1800,
@@ -386,13 +402,87 @@ class ScoritoClient:
                     self._api_get(
                         self._ranking_api_url_for_user(
                             user_id,
-                            f"scoreblock/totaluserscore/{market_id}/{user_id}",
+                            score_path,
                         )
                     )
                 ).get("Points")
                 or 0
             ),
         )
+
+    def build_subleague_final_standings(self, subleague_id: int) -> list[dict]:
+        return self._cached_value(
+            ("subleague_final_standings", subleague_id),
+            ttl_seconds=300,
+            loader=lambda: self._build_subleague_final_standings_uncached(
+                subleague_id
+            ),
+        )
+
+    def _build_subleague_final_standings_uncached(
+        self,
+        subleague_id: int,
+    ) -> list[dict]:
+        participants = self.get_subleague_participants(subleague_id)
+        participants_by_user_id = {
+            int(participant.get("UserId") or 0): participant
+            for participant in participants
+        }
+        ranking_items: list[dict] = []
+        participant_count = len(participants)
+        page = 0
+
+        while len(ranking_items) < participant_count:
+            ranking_url = (
+                f"{self._config['rankingApi']}/ranking/v2.0/"
+                f"gameranking/getpage/{subleague_id}/0/{page}"
+            )
+            for attempt in range(3):
+                try:
+                    payload = self._api_get(ranking_url)
+                    break
+                except ScoritoApiError as exc:
+                    if exc.status_code != 503 or attempt == 2:
+                        raise
+                    time.sleep(0.4 * (attempt + 1))
+            page_items = list(payload.get("RankingItems") or [])
+            if not page_items:
+                break
+            ranking_items.extend(page_items)
+            participant_count = int(
+                payload.get("ParticipantCount") or participant_count
+            )
+            page += 1
+
+        standings: list[dict] = []
+        for item in ranking_items:
+            user_id = int(item.get("UserId") or 0)
+            participant = participants_by_user_id.get(
+                user_id,
+                {
+                    "UserId": user_id,
+                    "Username": str(item.get("UserName") or ""),
+                    "FullName": "",
+                },
+            )
+            standings.append(
+                {
+                    "participant": participant,
+                    "rank": int(item.get("Rank") or 0),
+                    "round_points": int(item.get("RoundPoints") or 0),
+                    "total_points": int(item.get("TotalPoints") or 0),
+                    "market_percentage": None,
+                    "is_current_user": user_id == self._current_user_id,
+                }
+            )
+
+        standings.sort(
+            key=lambda item: (
+                int(item.get("rank") or 0),
+                item["participant"].get("Username", "").lower(),
+            )
+        )
+        return standings
 
     def get_total_max_average_score(self, market_id: int) -> dict:
         return self._cached_value(
@@ -1474,6 +1564,20 @@ class ScoritoClient:
             if round_id > 0:
                 points_by_round[round_id] = rider_points
         return points_by_round
+
+    def _load_rider_final_classification_points(
+        self,
+        market_id: int,
+    ) -> dict[int, list[dict]]:
+        payload = self._api_get(
+            f"{self._config['cyclingApi']}/cyclingmanager/v1.0/"
+            f"points/market/{market_id}"
+        )
+        return {
+            int(item.get("RiderId") or 0): list(item.get("PointsCollection") or [])
+            for item in payload.get("RiderPointsCollection", [])
+            if int(item.get("RiderId") or 0) > 0
+        }
 
     def _load_classics_market_round_points(
         self,
