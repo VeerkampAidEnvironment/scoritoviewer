@@ -164,6 +164,12 @@ HISTORIC_GAME_SNAPSHOT_LOCK = threading.Lock()
 HISTORIC_GAME_SNAPSHOT_VERSION = 5
 GAME_OPTIONS: tuple[dict, ...] = (
     {
+        "key": "vuelta-2026",
+        "label": "Vuelta 2026",
+        "market_id": 310,       # Scorito market ID
+        "subleague_id": 1331897, # Your Scorito pool/subleague ID
+    },
+    {
         "key": "tdf-2026",
         "label": "TDF 2026",
         "market_id": 309,
