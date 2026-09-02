@@ -3570,6 +3570,29 @@
               const ctx = canvas.getContext("2d");
               ctx.scale(scale, scale);
 
+              const drawLeaderJersey = (x, y, size = 14) => {
+                ctx.save();
+                ctx.fillStyle = leaderJersey.color;
+                ctx.strokeStyle = leaderJersey.light;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x + (size * 0.22), y);
+                ctx.lineTo(x + (size * 0.4), y);
+                ctx.lineTo(x + (size * 0.5), y + (size * 0.18));
+                ctx.lineTo(x + (size * 0.6), y);
+                ctx.lineTo(x + (size * 0.78), y);
+                ctx.lineTo(x + size, y + (size * 0.26));
+                ctx.lineTo(x + (size * 0.84), y + (size * 0.46));
+                ctx.lineTo(x + (size * 0.84), y + size);
+                ctx.lineTo(x + (size * 0.16), y + size);
+                ctx.lineTo(x + (size * 0.16), y + (size * 0.46));
+                ctx.lineTo(x, y + (size * 0.26));
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+              };
+
               const backgroundGradient = ctx.createLinearGradient(0, 0, 0, height);
               backgroundGradient.addColorStop(0, colors.bgTop);
               backgroundGradient.addColorStop(1, colors.bgBottom);
