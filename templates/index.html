@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
-  <body>
+  <body style="--leader-jersey-color: {{ leader_jersey.color }}; --leader-jersey-light: {{ leader_jersey.light }}; --leader-jersey-background: {{ leader_jersey.background }};">
     {% macro hover_breakdown(value, lines, heading) -%}
       <span class="hover-card">
         <button
@@ -1908,7 +1908,7 @@
                 <article class="classification-card classification-card--{{ panel.theme }}">
                   <div class="classification-card__head">
                     <div>
-                      <div class="classification-card__eyebrow">{{ panel.jersey_name }}</div>
+                      <div class="classification-card__eyebrow">{{ leader_jersey.name if panel.theme == "general" else panel.jersey_name }}</div>
                       <h3>{{ panel.name }}</h3>
                     </div>
                     {% if panel.leader %}
@@ -2126,14 +2126,14 @@
                 <h2>Alle gebruikers en scores per etappe</h2>
               </div>
               <p>
-                Alleen voltooide etappes. Na etappe 21 volgt het eindklassement inclusief ploeggenootpunten. &#9733; = etappewinst, gele trui = leider na die etappe.
+                Alleen voltooide etappes. Na etappe 21 volgt het eindklassement inclusief ploeggenootpunten. &#9733; = etappewinst, {{ leader_jersey.name|lower }} = leider na die etappe.
               </p>
             </div>
 
             <div class="matrix-toolbar">
               <div class="matrix-legend">
                 <span class="matrix-legend__item"><span class="stage-score-table__icon stage-score-table__icon--win" aria-hidden="true">&#9733;</span> Etappewinst</span>
-                <span class="matrix-legend__item"><span class="stage-score-table__jersey" aria-hidden="true"></span> Leider na etappe</span>
+                <span class="matrix-legend__item"><span class="stage-score-table__jersey" aria-hidden="true"></span> {{ leader_jersey.name }} — leider na etappe</span>
                 <span class="matrix-legend__item"><span class="stage-score-table__score stage-score-table__score--300">300+</span> Sterke score</span>
                 <span class="matrix-legend__item"><span class="stage-score-table__score stage-score-table__score--400">400+</span> Topscore</span>
               </div>
@@ -2220,7 +2220,7 @@
                                 <span class="stage-score-table__icon stage-score-table__icon--win" title="Etappewinnaar" aria-label="Etappewinnaar">&#9733;</span>
                               {% endif %}
                               {% if stage_point.is_subleague_leader %}
-                                <span class="stage-score-table__jersey" title="Leider na deze etappe" aria-label="Leider na deze etappe"></span>
+                                <span class="stage-score-table__jersey" title="{{ leader_jersey.name }}: leider na deze etappe" aria-label="{{ leader_jersey.name }}: leider na deze etappe"></span>
                               {% endif %}
                             </span>
                           </span>
@@ -2265,7 +2265,7 @@
                                 <span class="stage-score-table__icon stage-score-table__icon--win" title="Etappewinnaar" aria-label="Etappewinnaar">&#9733;</span>
                               {% endif %}
                               {% if entry.is_subleague_leader %}
-                                <span class="stage-score-table__jersey" title="Leider na deze etappe" aria-label="Leider na deze etappe"></span>
+                                <span class="stage-score-table__jersey" title="{{ leader_jersey.name }}: leider na deze etappe" aria-label="{{ leader_jersey.name }}: leider na deze etappe"></span>
                               {% endif %}
                             </span>
                           </div>
@@ -2339,6 +2339,7 @@
         <script id="stage-result-share-payload" type="application/json">
           {{ {
             "subleague_name": (selected_game.label if selected_game else ""),
+            "leader_jersey": leader_jersey,
             "snapshots": stage_result_snapshots
           }|tojson }}
         </script>
@@ -2368,6 +2369,7 @@
 
             const snapshots = Array.isArray(payload.snapshots) ? payload.snapshots : [];
             const subleagueName = payload.subleague_name || "Subleague";
+            const leaderJersey = payload.leader_jersey;
             if (!snapshots.length) {
               return;
             }
@@ -2672,12 +2674,12 @@
                   drawPill(ctx, {
                     x: badgeX,
                     y: rowY + 13,
-                    text: "Gele trui",
+                    text: leaderJersey.name,
                     height: 28,
                     paddingX: 12,
-                    background: "rgba(255, 216, 76, 0.26)",
-                    color: "#3c2800",
-                    border: "rgba(255, 216, 76, 0.3)",
+                    background: leaderJersey.background,
+                    color: leaderJersey.light,
+                    border: leaderJersey.border,
                     font: `700 13px ${fontSans}`
                   });
                 }
@@ -2786,6 +2788,7 @@
 
             const snapshots = Array.isArray(payload.snapshots) ? payload.snapshots : [];
             const subleagueName = payload.subleague_name || "Subleague";
+            const leaderJersey = payload.leader_jersey;
             if (!snapshots.length) {
               return;
             }
@@ -3281,10 +3284,10 @@
               const ctx = canvas.getContext("2d");
               ctx.scale(scale, scale);
 
-              const drawYellowJersey = (x, y, size = 14) => {
+              const drawLeaderJersey = (x, y, size = 14) => {
                 ctx.save();
-                ctx.fillStyle = "#ffd84c";
-                ctx.strokeStyle = "rgba(255, 244, 194, 0.8)";
+                ctx.fillStyle = leaderJersey.color;
+                ctx.strokeStyle = leaderJersey.light;
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.moveTo(x + (size * 0.22), y);
@@ -3359,13 +3362,13 @@
               drawPill(ctx, {
                 x: leaderLegendX,
                 y: legendY,
-                text: "Gele trui",
-                background: "rgba(255, 216, 76, 0.17)",
-                color: "#fff4c2",
-                border: "rgba(255, 216, 76, 0.25)",
+                text: leaderJersey.name,
+                background: leaderJersey.background,
+                color: leaderJersey.light,
+                border: leaderJersey.border,
                 height: 30
               });
-              drawYellowJersey(
+              drawLeaderJersey(
                 leaderLegendX + 12,
                 legendY + 8,
                 13
@@ -3497,7 +3500,7 @@
                     );
                   }
                   if (entry?.is_subleague_leader) {
-                    drawYellowJersey(
+                    drawLeaderJersey(
                       columnX + stageWidth - 20,
                       rowY + rowHeight - 22,
                       11
@@ -3712,6 +3715,20 @@
                 const managerTextX = tableX + rankWidth + previousRankWidth + 20;
                 ctx.fillStyle = colors.white;
                 ctx.fillText(fitText(ctx, entry.username || entry.name, managerWidth - 140), managerTextX, rowY + 34);
+                if (isStandingsMode) {
+                  const achievementY = rowY + 51;
+                  const stageWinCount = Math.max(0, Number(entry.stage_win_count) || 0);
+                  const leaderJerseyCount = Math.max(0, Number(entry.leader_jersey_count) || 0);
+                  ctx.font = `600 12px ${fontSans}`;
+                  ctx.fillStyle = colors.yellow;
+                  const stageWinLabel = `★ ${stageWinCount} dagzege${stageWinCount === 1 ? "" : "s"}`;
+                  ctx.fillText(stageWinLabel, managerTextX, achievementY);
+                  const stageWinLabelWidth = ctx.measureText(stageWinLabel).width;
+                  const jerseyX = managerTextX + stageWinLabelWidth + 18;
+                  drawLeaderJersey(jerseyX, rowY + 39, 12);
+                  ctx.fillStyle = leaderJersey.light;
+                  ctx.fillText(` ${leaderJerseyCount}×`, jerseyX + 14, achievementY);
+                }
 
                 const firstScoreX = tableX + rankWidth + previousRankWidth + managerWidth + 28;
                 const secondScoreX = firstScoreX + scoreWidth;
@@ -3775,12 +3792,12 @@
                     drawPill(ctx, {
                       x: badgeX,
                       y: rowY + 13,
-                      text: "Gele trui",
+                      text: leaderJersey.name,
                       height: 28,
                       paddingX: 12,
-                      background: "rgba(255, 216, 76, 0.26)",
-                      color: "#3c2800",
-                      border: "rgba(255, 216, 76, 0.3)",
+                      background: leaderJersey.background,
+                      color: leaderJersey.light,
+                      border: leaderJersey.border,
                       font: `700 13px ${fontSans}`
                     });
                   }
@@ -3802,12 +3819,12 @@
                     drawPill(ctx, {
                       x: badgeX,
                       y: rowY + 13,
-                      text: "Gele trui",
+                      text: leaderJersey.name,
                       height: 28,
                       paddingX: 12,
-                      background: "rgba(255, 216, 76, 0.26)",
-                      color: "#3c2800",
-                      border: "rgba(255, 216, 76, 0.3)",
+                      background: leaderJersey.background,
+                      color: leaderJersey.light,
+                      border: leaderJersey.border,
                       font: `700 13px ${fontSans}`
                     });
                   }

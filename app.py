@@ -1063,6 +1063,23 @@ def parse_game_identity(game: dict) -> tuple[str, int]:
     return event_id, year
 
 
+def build_leader_jersey(game: dict) -> dict[str, str]:
+    """Shared leader-jersey labels and colours for the page and share images."""
+    event_id, _ = parse_game_identity(game)
+    name, color, light = {
+        "tdf": ("Gele trui", "#ffd84c", "#ffe97d"),
+        "vuelta": ("Rode trui", "#ff746d", "#ffb0ab"),
+        "giro": ("Roze trui", "#ff7ab6", "#ffb2d5"),
+    }.get(event_id, ("Leiderstrui", "#ffd84c", "#ffe97d"))
+    return {
+        "name": name,
+        "color": color,
+        "light": light,
+        "background": f"{color}40",
+        "border": f"{color}66",
+    }
+
+
 def classify_game_page(game: dict) -> str:
     event_id, year = parse_game_identity(game)
     if year <= 0:
@@ -4531,6 +4548,8 @@ def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
     ordered_stages = sorted(stages, key=lambda item: int(item.get("stage_order") or 0))
     snapshots: list[dict] = []
     previous_standings_rank_by_user_id: dict[int, int] = {}
+    stage_wins_by_user_id: dict[int, int] = {}
+    leader_jerseys_by_user_id: dict[int, int] = {}
 
     for stage in ordered_stages:
         market_round_id = int(stage.get("market_round_id") or 0)
@@ -4564,6 +4583,17 @@ def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
                     "is_final_scoring": is_final_scoring,
                 }
             )
+
+        for entry in entries:
+            user_id = int(entry.get("user_id") or 0)
+            if entry["is_stage_winner"]:
+                stage_wins_by_user_id[user_id] = stage_wins_by_user_id.get(user_id, 0) + 1
+            if entry["is_subleague_leader"]:
+                leader_jerseys_by_user_id[user_id] = (
+                    leader_jerseys_by_user_id.get(user_id, 0) + 1
+                )
+            entry["stage_win_count"] = stage_wins_by_user_id.get(user_id, 0)
+            entry["leader_jersey_count"] = leader_jerseys_by_user_id.get(user_id, 0)
 
         entries.sort(
             key=lambda item: (
@@ -4687,6 +4717,7 @@ def index():
     context = {
         "games": page_games,
         "selected_game": selected_game,
+        "leader_jersey": build_leader_jersey(selected_game),
         "current_page": current_page,
         "requested_history_view": requested_history_view,
         "history_view": history_view,

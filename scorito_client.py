@@ -1946,7 +1946,7 @@ class ScoritoClient:
     @staticmethod
     def _classification_meta(classification_type: int) -> dict[str, str]:
         return {
-            1: {"name": "Algemeen", "jersey_name": "Gele trui", "theme": "general"},
+            1: {"name": "Algemeen", "jersey_name": "Leiderstrui", "theme": "general"},
             2: {"name": "Punten", "jersey_name": "Groene trui", "theme": "points"},
             3: {"name": "Berg", "jersey_name": "Bolletjestrui", "theme": "mountain"},
             4: {"name": "Jongeren", "jersey_name": "Witte trui", "theme": "youth"},

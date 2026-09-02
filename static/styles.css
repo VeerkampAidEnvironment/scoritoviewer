@@ -195,7 +195,7 @@ img {
 }
 
 .leader-chip--general {
-  background: linear-gradient(135deg, rgba(255, 216, 76, 0.28), rgba(255, 255, 255, 0.06));
+  background: linear-gradient(135deg, var(--leader-jersey-background, rgba(255, 216, 76, 0.28)), rgba(255, 255, 255, 0.06));
 }
 
 .leader-chip--points {
@@ -2884,8 +2884,8 @@ img {
   display: inline-block;
   width: 12px;
   height: 11px;
-  background: linear-gradient(180deg, #ffe97d, #ffd43a);
-  border: 1px solid rgba(255, 216, 76, 0.9);
+  background: linear-gradient(180deg, var(--leader-jersey-light, #ffe97d), var(--leader-jersey-color, #ffd84c));
+  border: 1px solid var(--leader-jersey-color, #ffd84c);
   clip-path: polygon(22% 0, 40% 0, 50% 18%, 60% 0, 78% 0, 100% 26%, 84% 46%, 84% 100%, 16% 100%, 16% 46%, 0 26%);
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.22);
 }
@@ -2940,7 +2940,10 @@ img {
   height: 5px;
 }
 
-.classification-card--general::before,
+.classification-card--general::before {
+  background: linear-gradient(90deg, var(--leader-jersey-color, #ffd84c), var(--leader-jersey-light, #ffe97d));
+}
+
 .lineup-card::before {
   background: linear-gradient(90deg, var(--yellow), #ffef9d);
 }
