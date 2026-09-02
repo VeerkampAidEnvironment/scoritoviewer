@@ -5306,8 +5306,8 @@ def index():
             )
     except RuntimeError as exc:
         context["error"] = str(exc)
-    except ScoritoAuthError:
-        context["error"] = "Inloggen bij Scorito is mislukt. Controleer het ingestelde e-mailadres en wachtwoord."
+    except ScoritoAuthError as exc:
+        context["error"] = str(exc)
     except ScoritoError as exc:
         context["error"] = str(exc)
     except Exception as exc:  # pragma: no cover - defensive fallback

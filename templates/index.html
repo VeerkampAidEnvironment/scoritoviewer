@@ -228,10 +228,6 @@
           <section class="message message--error">
             <h2>Kon de gegevens niet laden</h2>
             <p>{{ error }}</p>
-            <p class="message__hint">
-              Als dit een nieuwe uitrol is, maak dan een `.env`-bestand op basis van
-              `.env.example` en zet daar je Scorito-inloggegevens in.
-            </p>
           </section>
         {% elif overview_podiums %}
           <section class="history-overview">
@@ -1467,10 +1463,6 @@
         <section class="message message--error">
           <h2>Kon de gegevens niet laden</h2>
           <p>{{ error }}</p>
-          <p class="message__hint">
-            Als dit een nieuwe uitrol is, maak dan een `.env`-bestand op basis van
-            `.env.example` en zet daar je Scorito-inloggegevens in.
-          </p>
         </section>
       {% elif selected_round %}
         {% if is_archive_game and active_view == "standings" and archive_standings %}

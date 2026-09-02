@@ -2007,6 +2007,7 @@ class ScoritoClient:
         nonce = secrets.token_urlsafe(24)
 
         identity = self._config["identityServer"]
+        authority = identity["authority"].rstrip("/")
         authorize_query = urllib.parse.urlencode(
             {
                 "client_id": identity["clientId"],
@@ -2017,13 +2018,20 @@ class ScoritoClient:
                 "nonce": nonce,
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
+                "lang": "nl-NL",
+                "webstyle": "0",
             }
         )
-        authorize_url = f"{identity['authority'].rstrip('/')}/connect/authorize?{authorize_query}"
+        # The website now embeds this form directly. Starting at /connect/authorize
+        # still redirects to the legacy /Account/Login page, which returns HTTP 500.
+        login_endpoint = f"{authority}/Account/LoginIframed"
+        login_query = urllib.parse.urlencode(
+            {"ReturnUrl": f"/connect/authorize?{authorize_query}"}
+        )
 
         login_response_html, login_url = self._open_text(
             self._request(
-                authorize_url,
+                f"{login_endpoint}?{login_query}",
                 headers={
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                     "Referer": "https://www.scorito.com/",
@@ -2031,6 +2039,9 @@ class ScoritoClient:
             ),
             opener=opener,
         )
+
+        if not self._same_url_target(login_url, login_endpoint):
+            raise ScoritoAuthError("Scorito gaf een onverwacht inlogadres terug.")
 
         return_url = self._extract_input_value(login_response_html, "ReturnUrl")
         request_verification_token = self._extract_input_value(
@@ -2045,32 +2056,61 @@ class ScoritoClient:
                 "ReturnUrl": html.unescape(return_url),
                 "Username": self.email,
                 "Password": self.password,
-                "__RequestVerificationToken": request_verification_token,
-                "button": "login",
+                "__RequestVerificationToken": html.unescape(request_verification_token),
             }
         ).encode("utf-8")
 
-        _, final_url = self._open_text(
+        login_result_html, final_url = self._open_text(
             self._request(
-                login_url,
+                login_endpoint,
                 data=post_body,
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
-                    "Origin": "https://idsrv.scorito.com",
+                    "Origin": authority,
                     "Referer": login_url,
                 },
             ),
             opener=opener,
         )
 
+        # LoginIframed signals success to the parent window via postMessage.
+        # Parse that one string value; never execute JavaScript from the response.
+        continuation = self._extract_login_continuation(login_result_html)
+        if continuation is not None:
+            continuation_url = urllib.parse.urljoin(f"{authority}/", continuation)
+            allowed_targets = (
+                f"{authority}/connect/authorize",
+                f"{authority}/connect/authorize/callback",
+            )
+            if not any(
+                self._same_url_target(continuation_url, target)
+                for target in allowed_targets
+            ):
+                raise ScoritoAuthError("Scorito gaf een onverwacht vervolgadres voor het inloggen terug.")
+            _, final_url = self._open_text(
+                self._request(
+                    continuation_url,
+                    headers={"Referer": login_endpoint},
+                ),
+                opener=opener,
+            )
+
         parsed_final_url = urllib.parse.urlparse(final_url)
         query_values = urllib.parse.parse_qs(parsed_final_url.query)
         code = query_values.get("code", [None])[0]
         returned_state = query_values.get("state", [None])[0]
-        if not code or returned_state != state:
+        if not code:
             raise ScoritoAuthError(
                 "Inloggen bij Scorito is mislukt. Controleer het ingestelde e-mailadres en wachtwoord."
             )
+        if (
+            not self._same_url_target(final_url, self.redirect_uri)
+            or returned_state != state
+            or len(query_values.get("code", [])) != 1
+            or len(query_values.get("state", [])) != 1
+            or "error" in query_values
+        ):
+            raise ScoritoAuthError("De terugkoppeling van Scorito kon niet veilig worden gevalideerd.")
 
         token_body = urllib.parse.urlencode(
             {
@@ -2084,7 +2124,7 @@ class ScoritoClient:
 
         token_response = self._open_json(
             self._request(
-                f"{identity['authority'].rstrip('/')}/connect/token",
+                f"{authority}/connect/token",
                 data=token_body,
                 headers={
                     "Accept": "application/json, text/plain, */*",
@@ -2099,6 +2139,55 @@ class ScoritoClient:
             raise ScoritoAuthError("Scorito gaf geen toegangstoken terug.")
 
         return token_response
+
+    @staticmethod
+    def _same_url_target(url: str, expected: str) -> bool:
+        actual_parts = urllib.parse.urlsplit(url)
+        expected_parts = urllib.parse.urlsplit(expected)
+        return (
+            actual_parts.scheme,
+            actual_parts.netloc,
+            actual_parts.path,
+        ) == (
+            expected_parts.scheme,
+            expected_parts.netloc,
+            expected_parts.path,
+        ) and not actual_parts.fragment
+
+    @staticmethod
+    def _extract_login_continuation(response_html: str) -> str | None:
+        scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", response_html, re.I | re.S)
+        string_pattern = r'''(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')'''
+        for script in scripts:
+            for message in re.finditer(
+                r"(?:window\.)?parent\.postMessage\(\s*\{(.*?)\}\s*,", script, re.S
+            ):
+                payload = message.group(1)
+                if not re.search(
+                    r'''\btype\s*:\s*(["'])identity-login-success\1''', payload
+                ):
+                    continue
+                match = re.search(r"\bredirectUrl\s*:\s*(" + string_pattern + r")", payload)
+                if match is None:
+                    raise ScoritoAuthError("Het Scorito-inlogantwoord kon niet worden verwerkt.")
+                literal = match.group(1)
+                if literal.startswith("'"):
+                    # Normalize JS single-quoted strings to JSON without losing
+                    # escaped slashes, backslashes, Unicode escapes, or quotes.
+                    value = re.sub(
+                        r'''\\.|"''',
+                        lambda part: "'" if part[0] == r"\'" else r'\"' if part[0] == '"' else part[0],
+                        literal[1:-1],
+                    )
+                    literal = f'"{value}"'
+                try:
+                    continuation = html.unescape(json.loads(literal))
+                except (ValueError, TypeError) as exc:
+                    raise ScoritoAuthError("Het Scorito-inlogantwoord kon niet worden verwerkt.") from exc
+                if not continuation or any(ord(char) < 32 for char in continuation):
+                    raise ScoritoAuthError("Scorito gaf een ongeldig vervolgadres terug.")
+                return continuation
+        return None
 
     def _api_get(self, url: str) -> list | dict:
         access_token = self._ensure_access_token()
@@ -2187,6 +2276,12 @@ class ScoritoClient:
         *,
         opener: urllib.request.OpenerDirector | None = None,
     ) -> tuple[str, str]:
+        # Query strings in the login flow contain authorization codes/state.
+        # Keep them out of user-visible errors and application logs.
+        request_parts = urllib.parse.urlsplit(request.full_url)
+        safe_url = urllib.parse.urlunsplit(
+            (request_parts.scheme, request_parts.netloc, request_parts.path, "", "")
+        )
         try:
             if opener is None:
                 response_context = urllib.request.urlopen(
@@ -2204,12 +2299,12 @@ class ScoritoClient:
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise ScoritoApiError(
-                f"HTTP {exc.code} tijdens het laden van {request.full_url}",
+                f"HTTP {exc.code} tijdens het laden van {safe_url}",
                 status_code=exc.code,
                 body=body,
             ) from exc
         except urllib.error.URLError as exc:
-            raise ScoritoApiError(f"Netwerkfout tijdens het laden van {request.full_url}: {exc}") from exc
+            raise ScoritoApiError(f"Netwerkfout tijdens het laden van {safe_url}.") from exc
 
     def _open_json(
         self,

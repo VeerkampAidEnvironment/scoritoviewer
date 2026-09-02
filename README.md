@@ -4,7 +4,7 @@ Small Flask app that logs into Scorito, opens a configured Scorito cycling game,
 
 ## What it does
 
-- Logs in with your Scorito account through Scorito's normal web sign-in flow.
+- Logs in with your Scorito account through the website's embedded sign-in form (`LoginIframed`), using PKCE and validating the returned state.
 - Lets you switch between configured games such as Tour, Giro, and Vuelta.
 - Maps each game to a fixed `market_id` and `subleague_id`.
 - Defaults to the live stage, otherwise the next upcoming stage, otherwise the latest finished stage.
@@ -84,3 +84,9 @@ from app import app as application
 - The page uses live Scorito endpoints, so if Scorito changes its login flow or API, the client may need an update.
 - The app only reads accepted participants and their daily stage selection.
 - Your hosting environment must be able to make outbound HTTPS requests to `www.scorito.com`, `idsrv.scorito.com`, `cycling.scorito.com`, and `league.scorito.com`.
+
+## Authentication regression tests
+
+Run `python -m unittest discover -s tests -v`. These tests use mocked responses and dummy credentials; they do not contact Scorito.
+
+After updating the login code, restart the local Python process. On Render, deploy the updated commit: restarting a service alone continues to use its currently deployed code. HTTP 500 on the legacy `/Account/Login` endpoint does not by itself mean Render's IP has been blocked.
