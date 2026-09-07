@@ -1693,28 +1693,29 @@ class ScoritoClient:
                 for rider_id in selected_rider_ids
             )
 
-            selected_captain_eligible_points = [
+            captain_candidate_ids = team_selection_ids
+            captain_candidate_points = [
                 self._calculate_points(
                     points_for_round.get(rider_id, []),
                     include_types=self.captain_factor_point_types,
                 )
-                for rider_id in selected_rider_ids
+                for rider_id in captain_candidate_ids
             ]
             chosen_captain_base_points = self._calculate_points(
                 points_for_round.get(captain_id, []),
                 include_types=self.captain_factor_point_types,
             )
-            ideal_captain_base_points = max(selected_captain_eligible_points, default=0)
+            ideal_captain_base_points = max(captain_candidate_points, default=0)
             captain_bonus_factor = max(0, captain_factor - 1)
             captain_missed_points = max(
                 0,
                 (ideal_captain_base_points - chosen_captain_base_points) * captain_bonus_factor,
             )
             total_captain_missed_points += captain_missed_points
-            if captain_missed_points > 0 and selected_rider_ids:
+            if captain_missed_points > 0 and captain_candidate_ids:
                 chosen_captain_name = self._rider_name_short(rider_map.get(captain_id), captain_id)
                 ideal_captain_id = max(
-                    selected_rider_ids,
+                    captain_candidate_ids,
                     key=lambda rider_id: (
                         self._calculate_points(
                             points_for_round.get(rider_id, []),
