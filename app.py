@@ -166,6 +166,7 @@ GAME_OPTIONS: tuple[dict, ...] = (
     {
         "key": "vuelta-2026",
         "available_in_archive": True,
+        "available_in_live": True,
         "label": "Vuelta 2026",
         "market_id": 310,       # Scorito market ID
         "subleague_id": 1331897, # Your Scorito pool/subleague ID
@@ -1184,6 +1185,10 @@ def is_game_available_in_archive(
     )
 
 
+def is_game_available_in_live(game: dict) -> bool:
+    return classify_game_page(game) == "live" or bool(game.get("available_in_live"))
+
+
 def supports_historic_rider_data(game: dict) -> bool:
     event_id, _year = parse_game_identity(game)
     return event_id in {"klassiekerspel", "giro", "tdf", "vuelta"}
@@ -1247,7 +1252,7 @@ def build_page_game_options(
         page_games = [
             game
             for game in GAME_OPTIONS
-            if classify_game_page(game) == "live"
+            if is_game_available_in_live(game)
         ]
     return page_games or list(GAME_OPTIONS)
 
@@ -5092,7 +5097,7 @@ def index():
 
         classification_round = choose_latest_finished_round(rounds)
         has_final_scoring = has_complete_grand_tour_results(selected_game, rounds)
-        if has_final_scoring:
+        if has_final_scoring and current_page == "archive":
             archive_probe = {
                 "is_archive": True,
                 "sample_team_selection_size": None,
