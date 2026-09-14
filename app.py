@@ -165,6 +165,7 @@ HISTORIC_GAME_SNAPSHOT_VERSION = 5
 GAME_OPTIONS: tuple[dict, ...] = (
     {
         "key": "vuelta-2026",
+        "available_in_archive": True,
         "label": "Vuelta 2026",
         "market_id": 310,       # Scorito market ID
         "subleague_id": 1331897, # Your Scorito pool/subleague ID
@@ -1110,7 +1111,16 @@ def has_complete_grand_tour_results(game: dict, rounds: list[dict]) -> bool:
         if int(round_item.get("StageStatus", -1)) == 2
         and int(round_item.get("StageOrder") or 0) > 0
     }
-    return len(finished_stage_orders) >= HISTORIC_STAGE_RESULT_THRESHOLD
+    # A cancelled or unscored earlier stage must not prevent final scoring.
+    # Require the last scheduled stage to be finished, rather than 21 results.
+    last_stage_order = max(
+        (int(item.get("StageOrder") or 0) for item in rounds),
+        default=0,
+    )
+    return (
+        last_stage_order >= HISTORIC_STAGE_RESULT_THRESHOLD
+        and last_stage_order in finished_stage_orders
+    )
 
 
 def remember_game_completion(game: dict, rounds: list[dict]) -> bool:
@@ -1169,6 +1179,7 @@ def is_game_available_in_archive(
 ) -> bool:
     return (
         classify_game_page(game) == "archive"
+        or bool(game.get("available_in_archive"))
         or str(game.get("key") or "") in (completed_game_keys or set())
     )
 
@@ -1246,6 +1257,15 @@ def uses_archive_only_flow(game: dict) -> bool:
     return event_id == "klassiekerspel"
 
 
+def uses_live_api_history_overview(game: dict) -> bool:
+    event_id, year = parse_game_identity(game)
+    return event_id in {"giro", "tdf", "vuelta"} and year == CURRENT_DATE.year
+
+
+def standings_have_total_points(standings: list[dict]) -> bool:
+    return any(int(item.get("total_points") or 0) > 0 for item in standings)
+
+
 def normalize_history_standings(
     client: ScoritoClient,
     *,
@@ -1290,7 +1310,7 @@ def build_completed_grand_tour_standings(
     subleague_id = int(game["subleague_id"])
     try:
         standings = client.build_subleague_final_standings(subleague_id)
-        if standings:
+        if standings and standings_have_total_points(standings):
             return standings
     except ScoritoError:
         pass
@@ -1414,7 +1434,10 @@ def load_game_overview_card(client: ScoritoClient, game: dict) -> dict:
     subleague_id = int(game["subleague_id"])
 
     try:
-        if classify_game_page(game) == "archive":
+        if (
+            classify_game_page(game) == "archive"
+            and not uses_live_api_history_overview(game)
+        ):
             snapshot = get_historic_game_snapshot(client, game)
             return build_game_overview_card(
                 game=game,
@@ -4452,13 +4475,14 @@ def build_score_trend_chart(stage_score_matrix: dict) -> dict:
 def append_final_scoring_stage(
     stage_score_matrix: dict,
     final_standings: list[dict],
+    classification_scores: list[dict] | None = None,
 ) -> None:
     stages = stage_score_matrix.get("stages", [])
     rows = stage_score_matrix.get("rows", [])
     if (
         not stages
         or not rows
-        or not final_standings
+        or not (final_standings or classification_scores)
         or any(stage.get("is_final_scoring") for stage in stages)
     ):
         return
@@ -4467,7 +4491,11 @@ def append_final_scoring_stage(
         int(item.get("participant", {}).get("UserId") or 0): item
         for item in final_standings
     }
-    if not standings_by_user_id:
+    classification_by_user_id = {
+        int(item.get("participant", {}).get("UserId") or 0): item
+        for item in (classification_scores or [])
+    }
+    if not standings_by_user_id and not classification_by_user_id:
         return
 
     final_stage_order = (
@@ -4479,11 +4507,14 @@ def append_final_scoring_stage(
     for row in rows:
         user_id = int(row.get("participant", {}).get("UserId") or 0)
         final_standing = standings_by_user_id.get(user_id)
-        if final_standing is None:
+        classification = classification_by_user_id.get(user_id)
+        if final_standing is None and classification is None:
             continue
 
         stage_total = int(row.get("total_points") or 0)
-        official_total = int(final_standing.get("total_points") or stage_total)
+        official_total = int((final_standing or {}).get("total_points") or stage_total)
+        if classification is not None:
+            official_total = stage_total + int(classification.get("individual_final_points") or 0) + int(classification.get("teammate_winner_points") or 0)
         final_points_by_user_id[user_id] = max(0, official_total - stage_total)
         final_total_by_user_id[user_id] = max(stage_total, official_total)
 
@@ -4496,8 +4527,8 @@ def append_final_scoring_stage(
         {
             "market_round_id": FINAL_SCORING_MARKET_ROUND_ID,
             "stage_order": final_stage_order,
-            "label": "Eindklassement",
-            "short_label": "Eind",
+            "label": f"Etappe {final_stage_order} · Eindklassement",
+            "short_label": f"Et {final_stage_order} · Eind",
             "is_final_scoring": True,
             "winner_score": winner_score,
         }
@@ -4521,6 +4552,8 @@ def append_final_scoring_stage(
                 "market_round_id": FINAL_SCORING_MARKET_ROUND_ID,
                 "stage_order": final_stage_order,
                 "points": final_points,
+                "individual_final_points": classification_by_user_id.get(user_id, {}).get("individual_final_points"),
+                "teammate_winner_points": classification_by_user_id.get(user_id, {}).get("teammate_winner_points"),
                 "is_stage_winner": False,
                 "is_subleague_leader": final_total == leader_score,
                 "is_final_scoring": True,
@@ -4530,6 +4563,15 @@ def append_final_scoring_stage(
         final_standing = standings_by_user_id.get(user_id)
         if final_standing and int(final_standing.get("rank") or 0) > 0:
             row["rank"] = int(final_standing["rank"])
+
+    if classification_by_user_id:
+        rows.sort(key=lambda row: -int(row.get("total_points") or 0))
+        previous_total = None
+        for position, row in enumerate(rows, 1):
+            if row["total_points"] != previous_total:
+                rank = position
+            row["rank"] = rank
+            previous_total = row["total_points"]
 
     rows.sort(
         key=lambda row: (
@@ -4577,6 +4619,8 @@ def build_stage_result_snapshots(stage_score_matrix: dict) -> list[dict]:
                     "name": participant.get("Username", "") or participant.get("FullName", ""),
                     "username": participant.get("Username", ""),
                     "stage_points": stage_points,
+                    "individual_final_points": (stage_meta or {}).get("individual_final_points"),
+                    "teammate_winner_points": (stage_meta or {}).get("teammate_winner_points"),
                     "cumulative_points": cumulative_points,
                     "is_stage_winner": bool(stage_meta and stage_meta.get("is_stage_winner")),
                     "is_subleague_leader": bool(stage_meta and stage_meta.get("is_subleague_leader")),
@@ -4955,7 +4999,7 @@ def index():
         if current_page == "archive" and is_game_available_in_archive(
             selected_game,
             completed_game_keys=completed_game_keys,
-        ):
+        ) and not uses_live_api_history_overview(selected_game):
             snapshot = get_historic_game_snapshot(client, selected_game)
             rounds = snapshot.get("rounds", [])
             selected_round = choose_archive_round(rounds, requested_market_round_id)
@@ -5047,7 +5091,15 @@ def index():
             completed_game_keys.add(str(selected_game.get("key") or ""))
 
         classification_round = choose_latest_finished_round(rounds)
-        if uses_archive_only_flow(selected_game):
+        has_final_scoring = has_complete_grand_tour_results(selected_game, rounds)
+        if has_final_scoring:
+            archive_probe = {
+                "is_archive": True,
+                "sample_team_selection_size": None,
+                "sample_stage_selection_size": None,
+            }
+            is_archive_game = True
+        elif uses_archive_only_flow(selected_game):
             archive_probe = {
                 "is_archive": True,
                 "sample_team_selection_size": None,
@@ -5071,11 +5123,19 @@ def index():
                 )
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                archive_standings_future = executor.submit(
-                    client.build_archive_standings,
-                    market_id=market_id,
-                    subleague_id=int(selected_subleague["Id"]),
-                )
+                if has_final_scoring:
+                    archive_standings_future = executor.submit(
+                        build_completed_grand_tour_standings,
+                        client,
+                        game=selected_game,
+                        rounds=rounds,
+                    )
+                else:
+                    archive_standings_future = executor.submit(
+                        client.build_archive_standings,
+                        market_id=market_id,
+                        subleague_id=int(selected_subleague["Id"]),
+                    )
                 archive_total_rider_scores_future = executor.submit(
                     client.build_total_rider_scores,
                     market_id=market_id,
@@ -5263,16 +5323,18 @@ def index():
                 apply_manager_display_aliases_to_rows(projected_final_scores)
                 stage_score_matrix = stage_score_matrix_future.result()
                 if has_complete_grand_tour_results(selected_game, rounds):
+                    final_standings = []
                     try:
                         final_standings = client.build_subleague_final_standings(
                             int(selected_subleague["Id"])
                         )
-                        append_final_scoring_stage(
-                            stage_score_matrix,
-                            final_standings,
-                        )
                     except ScoritoError:
                         pass
+                    append_final_scoring_stage(
+                        stage_score_matrix,
+                        final_standings,
+                        classification_scores=projected_final_scores,
+                    )
                 apply_manager_display_aliases_to_stage_score_matrix(stage_score_matrix)
                 score_trend_chart = build_score_trend_chart(stage_score_matrix)
                 stage_result_snapshots = build_stage_result_snapshots(stage_score_matrix)

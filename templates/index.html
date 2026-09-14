@@ -27,6 +27,45 @@
         </span>
       </span>
     {%- endmacro %}
+    {% macro points_breakdown(value, lines, heading, manager) -%}
+      <button type="button" class="standings-table__hint" data-points-open aria-haspopup="dialog" aria-label="{{ heading }}: {{ value }}. Bekijk details.">{{ value }} &#9432;</button>
+      <template>
+        <header class="points-dialog__header"><div><p>{{ manager }}</p><h2>{{ heading }}</h2></div><button type="button" data-points-close aria-label="Sluiten">&#10005;</button></header>
+        <p><strong>{{ value }} punten misgelopen</strong></p>
+        <p>{% if heading == 'Bankpunten' %}Extra punten met de beste 9 renners uit je team, zonder kopmanbonus.{% else %}Extra kopmanbonus met de beste kopman uit je volledige team, inclusief bankrenners. De punten bij de namen zijn vóór de kopmanbonus.{% endif %}</p>
+        {% for line in lines %}
+          <section class="points-dialog__stage">
+            {% if line.startswith('Etappe ') and ': ' in line %}
+              {% set stage, detail = line.split(': ', 1) %}
+              {% set swaps, gain = detail.rsplit(' [+', 1) %}
+              <h3>{{ stage }} <span>+{{ gain.rstrip(']') }} punten</span></h3>
+              {% for swap in swaps.split('; ') %}
+                {% if ' -> ' in swap %}
+                  {% set outgoing, incoming = swap.split(' -> ', 1) %}
+                  <div class="points-dialog__swap"><div><small>{{ 'Uit opstelling' if heading == 'Bankpunten' else 'Gekozen kopman' }}</small>{{ outgoing }}</div><div><small>{{ 'Van de bank' if heading == 'Bankpunten' else 'Beste kopman' }}</small>{{ incoming.replace(' [+', ' · +').replace(']', ' punten') }}</div></div>
+                {% else %}<p>{{ swap }}</p>{% endif %}
+              {% endfor %}
+            {% else %}<p>{{ line.replace('captainpunten', 'kopmanpunten') }}</p>{% endif %}
+          </section>
+        {% endfor %}
+      </template>
+    {%- endmacro %}
+    {% macro rider_missed_breakdown(rows, total, manager) -%}
+      <button type="button" class="standings-table__hint" data-points-open aria-haspopup="dialog" aria-label="Gemiste punten per renner: {{ total }}. Bekijk details.">{{ total }} &#9432;</button>
+      <template>
+        <header class="points-dialog__header"><div><p>{{ manager }}</p><h2>Gemist per renner</h2></div><button type="button" data-points-close aria-label="Sluiten">&#10005;</button></header>
+        {% if rows %}
+          <p><strong>{{ total }} punten misgelopen</strong></p>
+          <ol class="points-dialog__rider-list">
+            {% for row in rows %}
+              <li><span>{{ row.name }}</span><strong>{{ row.points }} punten</strong></li>
+            {% endfor %}
+          </ol>
+        {% else %}
+          <p>Er zijn geen punten per renner misgelopen.</p>
+        {% endif %}
+      </template>
+    {%- endmacro %}
     {% macro history_count_breakdown(value, tooltip, heading) -%}
       {% if tooltip %}
         <span class="hover-card hover-card--history">
@@ -2214,7 +2253,7 @@
                       {% for stage_point in row.stage_points %}
                         <td class="stage-score-table__cell{% if stage_point.is_stage_winner %} stage-score-table__cell--winner{% endif %}{% if stage_point.is_final_scoring %} stage-score-table__cell--final{% endif %}">
                           <span class="stage-score-table__score-wrap">
-                            <span class="stage-score-table__score{% if stage_point.points >= 400 %} stage-score-table__score--400{% elif stage_point.points >= 300 %} stage-score-table__score--300{% endif %}">{{ stage_point.points }}</span>
+                            <span class="stage-score-table__score{% if not stage_point.is_final_scoring and stage_point.points >= 400 %} stage-score-table__score--400{% elif not stage_point.is_final_scoring and stage_point.points >= 300 %} stage-score-table__score--300{% endif %}">{{ stage_point.points }}</span>
                             <span class="stage-score-table__icons">
                               {% if stage_point.is_stage_winner %}
                                 <span class="stage-score-table__icon stage-score-table__icon--win" title="Etappewinnaar" aria-label="Etappewinnaar">&#9733;</span>
@@ -2259,7 +2298,7 @@
                             <span class="stage-score-mobile-stage__name">{{ entry.username or entry.name }}</span>
                           </div>
                           <div class="stage-score-mobile-stage__bottom">
-                            <span class="stage-score-table__score{% if entry.stage_points >= 400 %} stage-score-table__score--400{% elif entry.stage_points >= 300 %} stage-score-table__score--300{% endif %}">{{ entry.stage_points }}</span>
+                            <span class="stage-score-table__score{% if not entry.is_final_scoring and entry.stage_points >= 400 %} stage-score-table__score--400{% elif not entry.is_final_scoring and entry.stage_points >= 300 %} stage-score-table__score--300{% endif %}">{{ entry.stage_points }}</span>
                             <span class="stage-score-mobile-stage__icons">
                               {% if entry.is_stage_winner %}
                                 <span class="stage-score-table__icon stage-score-table__icon--win" title="Etappewinnaar" aria-label="Etappewinnaar">&#9733;</span>
@@ -2288,7 +2327,7 @@
                 <h2>Subleague-klassement</h2>
               </div>
               <p>
-                Totaalpunten zijn gebaseerd op voltooide etappes. Banktotalen gebruiken de best mogelijke 9 renners per voltooide etappe, en gemiste captainpunten tonen hoeveel extra punten een ideale captainkeuze had opgeleverd.
+                Totaalpunten zijn gebaseerd op voltooide etappes. Bankpunten tonen de extra punten met de beste 9 renners, en gemiste kopmanpunten de extra bonus met de beste kopman. Klik op een puntentotaal met het infosymbool voor details per etappe.
               </p>
             </div>
 
@@ -2300,7 +2339,8 @@
                     <th>Manager</th>
                     <th>Totaal punten</th>
                     <th>Totaal bankpunten</th>
-                    <th>Gemiste captainpunten</th>
+                    <th>Gemiste kopmanpunten</th>
+                    <th>Gemist per renner</th>
                     <th>Totaalscore</th>
                   </tr>
                 </thead>
@@ -2315,10 +2355,13 @@
                       </td>
                       <td data-label="Totaal punten">{{ standing.total_points }}</td>
                       <td data-label="Totaal bankpunten">
-                        {{ hover_breakdown(standing.total_bench_points, standing.total_bench_points_tooltip, "Bankwissels per etappe") }}
+                        {{ points_breakdown(standing.total_bench_points, standing.total_bench_points_tooltip, "Bankpunten", standing.participant.Username) }}
                       </td>
-                      <td data-label="Gemiste captainpunten">
-                        {{ hover_breakdown(standing.total_captain_missed_points, standing.total_captain_missed_points_tooltip, "Captainwissels per etappe") }}
+                      <td data-label="Gemiste kopmanpunten">
+                        {{ points_breakdown(standing.total_captain_missed_points, standing.total_captain_missed_points_tooltip, "Gemiste kopmanpunten", standing.participant.Username) }}
+                      </td>
+                      <td data-label="Gemist per renner">
+                        {{ rider_missed_breakdown(standing.missed_points_by_rider, standing.missed_points_by_rider_total, standing.participant.Username) }}
                       </td>
                       <td data-label="Totaalscore" class="standings-table__total">{{ standing.total_with_bench_and_captain }}</td>
                     </tr>
@@ -2614,13 +2657,14 @@
 
                 const stageScoreX = tableX + rankWidth + managerWidth + 28;
                 const totalScoreX = stageScoreX + stageWidth;
-                const stageScoreTheme = entry.stage_points >= 400
+                const isFinalScoring = Boolean(snapshot.is_final_scoring);
+                const stageScoreTheme = !isFinalScoring && entry.stage_points >= 400
                   ? {
                       background: "rgba(255, 216, 76, 0.24)",
                       color: "#fff4c2",
                       border: "rgba(255, 216, 76, 0.28)"
                     }
-                  : entry.stage_points >= 300
+                  : !isFinalScoring && entry.stage_points >= 300
                     ? {
                         background: "rgba(105, 174, 247, 0.22)",
                         color: "#e8f6ff",
@@ -3477,12 +3521,12 @@
                     ctx.fillStyle = "rgba(255, 216, 76, 0.08)";
                     ctx.fillRect(columnX, rowY + 3, stageWidth, rowHeight - 6);
                   }
-                  ctx.fillStyle = points >= 400
+                  ctx.fillStyle = !isFinalScoring && points >= 400
                     ? "#fff1a8"
-                    : points >= 300
+                    : !isFinalScoring && points >= 300
                       ? "#d9efff"
                       : colors.white;
-                  ctx.font = `${points >= 300 ? "700" : "600"} 15px ${fontSans}`;
+                  ctx.font = `${!isFinalScoring && points >= 300 ? "700" : "600"} 15px ${fontSans}`;
                   ctx.textAlign = "center";
                   ctx.fillText(
                     String(points),
@@ -3755,13 +3799,14 @@
 
                 const firstScoreX = tableX + rankWidth + previousRankWidth + managerWidth + 28;
                 const secondScoreX = firstScoreX + scoreWidth;
-                const stageScoreTheme = entry.stage_points >= 400
+                const isFinalScoring = Boolean(snapshot.is_final_scoring);
+                const stageScoreTheme = !isFinalScoring && entry.stage_points >= 400
                   ? {
                       background: "rgba(255, 216, 76, 0.24)",
                       color: "#fff4c2",
                       border: "rgba(255, 216, 76, 0.28)"
                     }
-                  : entry.stage_points >= 300
+                  : !isFinalScoring && entry.stage_points >= 300
                     ? {
                         background: "rgba(105, 174, 247, 0.22)",
                         color: "#e8f6ff",
@@ -4753,5 +4798,24 @@
         })();
       </script>
     </div>
+    <dialog class="points-dialog" aria-label="Uitsplitsing gemiste punten"><div data-points-content></div></dialog>
+    <script>
+      (() => {
+        const dialog = document.querySelector('.points-dialog');
+        const content = dialog.querySelector('[data-points-content]');
+        document.querySelectorAll('[data-points-open]').forEach(button => {
+          button.addEventListener('click', () => {
+            content.replaceChildren(button.nextElementSibling.content.cloneNode(true));
+            content.querySelector('[data-points-close]').addEventListener('click', () => dialog.close());
+            dialog.showModal();
+            dialog.scrollTop = 0;
+          });
+        });
+        dialog.addEventListener('click', event => {
+          const rect = dialog.getBoundingClientRect();
+          if (event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) dialog.close();
+        });
+      })();
+    </script>
   </body>
 </html>

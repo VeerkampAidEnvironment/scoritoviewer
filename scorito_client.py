@@ -394,20 +394,22 @@ class ScoritoClient:
         score_path = f"scoreblock/totaluserscore/{market_id}"
         if user_id != current_user_id:
             score_path = f"{score_path}/{user_id}"
+        score_url = self._ranking_api_url_for_user(user_id, score_path)
+
+        def load_total_user_score() -> int:
+            for attempt in range(3):
+                try:
+                    return int((self._api_get(score_url)).get("Points") or 0)
+                except ScoritoApiError as exc:
+                    if exc.status_code != 503 or attempt == 2:
+                        raise
+                    time.sleep(0.4 * (attempt + 1))
+            return 0
+
         return self._cached_value(
             ("total_user_score", market_id, user_id),
             ttl_seconds=1800,
-            loader=lambda: int(
-                (
-                    self._api_get(
-                        self._ranking_api_url_for_user(
-                            user_id,
-                            score_path,
-                        )
-                    )
-                ).get("Points")
-                or 0
-            ),
+            loader=load_total_user_score,
         )
 
     def build_subleague_final_standings(self, subleague_id: int) -> list[dict]:
@@ -1670,8 +1672,22 @@ class ScoritoClient:
         total_points = 0
         total_bench_points = 0
         total_captain_missed_points = 0
+        missed_points_by_rider_id: dict[int, dict] = {}
         bench_breakdown_lines: list[str] = []
         captain_breakdown_lines: list[str] = []
+
+        def add_missed_rider_points(rider_id: int, points: int) -> None:
+            if rider_id <= 0 or points <= 0:
+                return
+            rider_points = missed_points_by_rider_id.setdefault(
+                rider_id,
+                {
+                    "rider_id": rider_id,
+                    "name": self._rider_name_short(rider_map.get(rider_id), rider_id),
+                    "points": 0,
+                },
+            )
+            rider_points["points"] += points
 
         for market_round_id in finished_market_round_ids:
             stage_selection = self.get_stage_selection(market_round_id, user_id)
@@ -1728,6 +1744,7 @@ class ScoritoClient:
                     rider_map.get(ideal_captain_id),
                     ideal_captain_id,
                 )
+                add_missed_rider_points(ideal_captain_id, captain_missed_points)
                 captain_breakdown_lines.append(
                     f"Etappe {stage_order}: {chosen_captain_name} ({chosen_captain_base_points}) -> "
                     f"{ideal_captain_name} ({ideal_captain_base_points}) [+{captain_missed_points}]"
@@ -1772,14 +1789,20 @@ class ScoritoClient:
                     incoming_name = self._rider_name_short(rider_map.get(incoming_id), incoming_id)
                     outgoing_points = stage_points_by_rider.get(outgoing_id, 0)
                     incoming_points = stage_points_by_rider.get(incoming_id, 0)
+                    missed_points = max(0, incoming_points - outgoing_points)
+                    add_missed_rider_points(incoming_id, missed_points)
                     swap_parts.append(
                         f"{outgoing_name} ({outgoing_points}) -> {incoming_name} ({incoming_points}) "
-                        f"[+{incoming_points - outgoing_points}]"
+                        f"[+{missed_points}]"
                     )
                 bench_breakdown_lines.append(
                     f"Etappe {stage_order}: " + "; ".join(swap_parts) + f" [+{bench_points}]"
                 )
 
+        missed_points_by_rider = sorted(
+            missed_points_by_rider_id.values(),
+            key=lambda item: (-int(item.get("points") or 0), str(item.get("name") or "").lower()),
+        )
         return {
             "participant": participant,
             "total_points": total_points,
@@ -1792,6 +1815,10 @@ class ScoritoClient:
             "total_captain_missed_points_tooltip": self._tooltip_lines(
                 captain_breakdown_lines,
                 empty_message="Er zijn geen captainpunten misgelopen.",
+            ),
+            "missed_points_by_rider": missed_points_by_rider,
+            "missed_points_by_rider_total": sum(
+                int(item.get("points") or 0) for item in missed_points_by_rider
             ),
             "total_with_bench_and_captain": (
                 total_points + total_bench_points + total_captain_missed_points
